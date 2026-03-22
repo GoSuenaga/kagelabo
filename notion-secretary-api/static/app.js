@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.7';
+const VERSION = 'v0.8';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -98,6 +98,7 @@ function showWelcome() {
       📝 メモ・💡 アイデア → 保存<br>
       📅 予定ボタン → 日時つきで保存<br>
       🧠 整理ボタン → タスクを整理<br>
+      🐛 バグボタン → 不具合をNotionに記録<br>
       📆 右上カレンダー → 今後の予定確認
     </div>
   `);
@@ -230,8 +231,14 @@ document.querySelectorAll('.qa').forEach(btn => {
     if (a === 'schedule') { openSched(); return; }
     if (a === 'brain') { handleThink(); return; }
     if (a === 'cleanup') { handleCleanup(); return; }
-    const prefix = { memo:'メモ: ', idea:'アイデア: ' }[a];
-    if (prefix) { msgInput.value = prefix; msgInput.focus(); autoResize(); }
+    const prefix = { memo:'メモ: ', idea:'アイデア: ', bug:'バグ: ' }[a];
+    if (prefix) {
+      msgInput.value = prefix;
+      msgInput.focus();
+      const end = msgInput.value.length;
+      msgInput.setSelectionRange(end, end);
+      autoResize();
+    }
   });
 });
 
