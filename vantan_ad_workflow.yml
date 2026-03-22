@@ -1,0 +1,995 @@
+app:
+  description: VANTANの各スクール向けに広告動画を自動生成するワークフロー
+  icon: 47572148-34ad-45c9-b1bb-6e560a5c1a21
+  icon_background: '#FFEAD5'
+  mode: workflow
+  name: VANTAN広告動画自動生成ワークフロー
+  use_icon_as_answer_icon: false
+dependencies:
+- current_identifier: null
+  type: marketplace
+  value:
+    marketplace_plugin_unique_identifier: langgenius/gemini:0.7.15@ca2b8f2599b87de968354f0e2ccbbc0d76bac5ebf275c3f0fbdae48881d74518
+    version: null
+kind: app
+version: 0.6.0
+workflow:
+  conversation_variables: []
+  environment_variables: []
+  features:
+    file_upload:
+      allowed_file_extensions:
+      - .JPG
+      - .JPEG
+      - .PNG
+      - .GIF
+      - .WEBP
+      - .SVG
+      allowed_file_types:
+      - image
+      allowed_file_upload_methods:
+      - local_file
+      - remote_url
+      enabled: false
+      fileUploadConfig:
+        attachment_image_file_size_limit: 2
+        audio_file_size_limit: 50
+        batch_count_limit: 5
+        file_size_limit: 15
+        file_upload_limit: 50
+        image_file_batch_limit: 10
+        image_file_size_limit: 10
+        single_chunk_attachment_limit: 10
+        video_file_size_limit: 100
+        workflow_file_upload_limit: 10
+      image:
+        enabled: false
+        number_limits: 3
+        transfer_methods:
+        - local_file
+        - remote_url
+      number_limits: 3
+    opening_statement: ''
+    retriever_resource:
+      enabled: true
+    sensitive_word_avoidance:
+      enabled: false
+    speech_to_text:
+      enabled: false
+    suggested_questions: []
+    suggested_questions_after_answer:
+      enabled: false
+    text_to_speech:
+      enabled: false
+      language: ''
+      voice: ''
+  graph:
+    edges:
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: start
+        targetType: http-request
+      id: 1900000000001-source-1900000000002-target
+      selected: false
+      source: '1900000000001'
+      sourceHandle: source
+      target: '1900000000002'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: http-request
+        targetType: code
+      id: 1900000000002-source-1900000000003-target
+      selected: false
+      source: '1900000000002'
+      sourceHandle: source
+      target: '1900000000003'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: code
+      id: 1900000000003-source-1900000000004-target
+      selected: false
+      source: '1900000000003'
+      sourceHandle: source
+      target: '1900000000004'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: iteration
+      id: 1900000000004-source-1900000000005-target
+      selected: false
+      source: '1900000000004'
+      sourceHandle: source
+      target: '1900000000005'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: iteration-start
+        targetType: llm
+      id: 1900000000005start-source-1900000000006-target
+      selected: false
+      source: 1900000000005start
+      sourceHandle: source
+      target: '1900000000006'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: llm
+        targetType: code
+      id: 1900000000006-source-1900000000007-target
+      selected: false
+      source: '1900000000006'
+      sourceHandle: source
+      target: '1900000000007'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: code
+        targetType: http-request
+      id: 1900000000007-source-1900000000008-target
+      selected: false
+      source: '1900000000007'
+      sourceHandle: source
+      target: '1900000000008'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: http-request
+        targetType: code
+      id: 1900000000008-source-1900000000009-target
+      selected: false
+      source: '1900000000008'
+      sourceHandle: source
+      target: '1900000000009'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: code
+        targetType: http-request
+      id: 1900000000009-source-1900000000010-target
+      selected: false
+      source: '1900000000009'
+      sourceHandle: source
+      target: '1900000000010'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        sourceType: http-request
+        targetType: code
+      id: 1900000000010-source-1900000000011-target
+      selected: false
+      source: '1900000000010'
+      sourceHandle: source
+      target: '1900000000011'
+      targetHandle: target
+      type: custom
+      zIndex: 1002
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: iteration
+        targetType: code
+      id: 1900000000005-source-1900000000012-target
+      selected: false
+      source: '1900000000005'
+      sourceHandle: source
+      target: '1900000000012'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    - data:
+        isInIteration: false
+        isInLoop: false
+        sourceType: code
+        targetType: end
+      id: 1900000000012-source-1900000000013-target
+      selected: false
+      source: '1900000000012'
+      sourceHandle: source
+      target: '1900000000013'
+      targetHandle: target
+      type: custom
+      zIndex: 0
+    nodes:
+    # ============================================================
+    # 1. ユーザー入力（スタートノード）
+    # ============================================================
+    - data:
+        selected: false
+        title: ユーザー入力
+        type: start
+        variables:
+        - default: ''
+          hint: ''
+          label: スクール名(スプレッドシートの表記と同じにしてください)
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: product_name
+        - hint: ''
+          label: バッチモード
+          max_length: 48
+          options:
+          - 単一スクール
+          - 全スクール
+          placeholder: ''
+          required: true
+          type: select
+          variable: batch_mode
+        - hint: ''
+          label: 動画に登場させる人物の属性
+          max_length: 48
+          options:
+          - 20代女性
+          - 30代女性
+          - 40代女性
+          - 50代女性
+          - 20代男性
+          - 30代男性
+          - 40代男性
+          - 50代男性
+          placeholder: ''
+          required: true
+          type: select
+          variable: subject
+        - default: ''
+          hint: ''
+          label: 演出キーワード（例：カフェ風、エモい）
+          max_length: 100
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: keywords
+        - hint: ''
+          label: 季節(動画に出てくる人物や状況の季節が変わります)
+          max_length: 48
+          options:
+          - 春夏
+          - 秋冬
+          placeholder: ''
+          required: true
+          type: select
+          variable: season
+        - hint: ''
+          label: ナレーションの属性
+          max_length: 48
+          options:
+          - 女性1
+          - 女の子1
+          - 女の子2
+          - 男性
+          - 男の子
+          - おじさん
+          - 怪獣
+          - キャラクター
+          placeholder: ''
+          required: true
+          type: select
+          variable: voice_type
+        - default: ''
+          hint: ''
+          label: 注釈(常時表示されます)
+          max_length: 300
+          options: []
+          placeholder: ''
+          required: false
+          type: paragraph
+          variable: annotation_text
+        - default: ''
+          hint: ''
+          label: UI画像・動画URL(カットに表示されます)
+          max_length: 256
+          options: []
+          placeholder: ''
+          required: false
+          type: text-input
+          variable: ui_media_url
+        - hint: ''
+          label: ロゴ画像URL(jpg,png)(GoogleDriveリンク不可)
+          max_length: 256
+          options: []
+          placeholder: ''
+          required: true
+          type: text-input
+          variable: logo_url
+        - default: '50'
+          hint: ''
+          label: 演出キーワードの反映率 (0-100)
+          options: []
+          placeholder: ''
+          required: true
+          type: number
+          variable: reflection_rate
+      height: 343
+      id: '1900000000001'
+      position:
+        x: 80
+        y: 300
+      positionAbsolute:
+        x: 80
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # ============================================================
+    # 2. スクール情報取得（Googleスプレッドシート CSV取得）
+    # ============================================================
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data: []
+          type: none
+        headers: ''
+        method: get
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 0
+          max_read_timeout: 0
+          max_write_timeout: 0
+        title: スクール情報スプシ連携
+        type: http-request
+        url: https://docs.google.com/spreadsheets/d/YOUR_SPREADSHEET_ID/export?format=csv&gid=0
+        variables: []
+      height: 186
+      id: '1900000000002'
+      position:
+        x: 380
+        y: 300
+      positionAbsolute:
+        x: 380
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # ============================================================
+    # 3. スクール情報抽出（CSVパース・フィルタリング）
+    # ============================================================
+    - data:
+        code: "import csv\nfrom io import StringIO\n\ndef main(file_list: list, product_name:\
+          \ str, batch_mode: str) -> dict:\n    if not file_list or len(file_list)\
+          \ == 0:\n        return {\"schools\": [], \"count\": 0}\n    \n    file_url\
+          \ = file_list[0]['url']\n    import requests\n    response = requests.get(file_url)\n\
+          \    response.encoding = 'utf-8'\n    \n    f = StringIO(response.text)\n\
+          \    reader = csv.reader(f)\n    data = list(reader)\n    \n    if len(data)\
+          \ < 2:\n        return {\"schools\": [], \"count\": 0}\n    \n    headers\
+          \ = data[0]\n    school_list = []\n    \n    for row in data[1:]:\n     \
+          \   if len(row) < 4:\n            continue\n        row_data = {\n      \
+          \      \"school_name\": row[0] if len(row) > 0 else \"\",\n            \"\
+          school_overview\": row[1] if len(row) > 1 else \"\",\n            \"appeal_points\"\
+          : row[2] if len(row) > 2 else \"\",\n            \"key_message\": row[3]\
+          \ if len(row) > 3 else \"\",\n            \"target_audience\": row[4] if\
+          \ len(row) > 4 else \"\",\n            \"brand_tone\": row[5] if len(row)\
+          \ > 5 else \"\"\n        }\n        if batch_mode == \"\u5168\u30B9\u30AF\
+          \u30FC\u30EB\":\n            school_list.append(row_data)\n        elif row_data[\"\
+          school_name\"] == product_name:\n            school_list.append(row_data)\n\
+          \    \n    return {\"schools\": school_list, \"count\": len(school_list)}"
+        code_language: python3
+        outputs:
+          schools:
+            children: null
+            type: array[object]
+          count:
+            children: null
+            type: number
+        selected: false
+        title: スクール情報抽出
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000002'
+          - files
+          value_type: array[file]
+          variable: file_list
+        - value_selector:
+          - '1900000000001'
+          - product_name
+          value_type: string
+          variable: product_name
+        - value_selector:
+          - '1900000000001'
+          - batch_mode
+          value_type: string
+          variable: batch_mode
+      height: 52
+      id: '1900000000003'
+      position:
+        x: 680
+        y: 300
+      positionAbsolute:
+        x: 680
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # ============================================================
+    # 4. ボイスリスト（voice_type → voice_id 変換）
+    # ============================================================
+    - data:
+        code: "def main(voice_label: str) -> dict:\n    voice_map = {\n        \"\u5973\
+          \u6027\x31\": \"jBpfuIE2acCO8z3wKNLl\",\n        \"\u5973\u306E\u5B50\x31\
+          \": \"XB0fDUnXU5powFXDhCwa\",\n        \"\u5973\u306E\u5B50\x32\": \"Xb7hH8MSUJpSbSDYk0k2\"\
+          ,\n        \"\u7537\u6027\": \"onwK4e9ZLuTAKqWW03F9\",\n        \"\u7537\
+          \u306E\u5B50\": \"pFZP5JQG7iQjIQuC4Bku\",\n        \"\u304A\u3058\u3055\u3093\
+          \": \"nPczCjzI2devNBz1zQrb\",\n        \"\u602A\u7363\": \"TX3LPaxmHKxFdv7VOQHJ\"\
+          ,\n        \"\u30AD\u30E3\u30E9\u30AF\u30BF\u30FC\": \"pqHfZKP75CvOlQylNhV4\"\
+          \n    }\n    voice_id = voice_map.get(voice_label, \"jBpfuIE2acCO8z3wKNLl\"\
+          )\n    return {\"voice_id\": voice_id}"
+        code_language: python3
+        outputs:
+          voice_id:
+            children: null
+            type: string
+        selected: false
+        title: ボイスリスト
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000001'
+          - voice_type
+          value_type: string
+          variable: voice_label
+      height: 52
+      id: '1900000000004'
+      position:
+        x: 960
+        y: 300
+      positionAbsolute:
+        x: 960
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # ============================================================
+    # 5. スクール別動画生成（イテレーション）
+    # ============================================================
+    - data:
+        error_handle_mode: continue-on-error
+        flatten_output: true
+        height: 500
+        is_parallel: false
+        iterator_input_type: array[object]
+        iterator_selector:
+        - '1900000000003'
+        - schools
+        output_selector:
+        - '1900000000011'
+        - final_video_url
+        output_type: array[string]
+        parallel_nums: 1
+        selected: false
+        start_node_id: 1900000000005start
+        title: スクール別動画生成
+        type: iteration
+        width: 1200
+      height: 500
+      id: '1900000000005'
+      position:
+        x: 1260
+        y: 200
+      positionAbsolute:
+        x: 1260
+        y: 200
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 1200
+      zIndex: 1
+
+    # イテレーション開始
+    - data:
+        desc: ''
+        isInIteration: true
+        selected: false
+        title: ''
+        type: iteration-start
+      draggable: false
+      height: 48
+      id: 1900000000005start
+      parentId: '1900000000005'
+      position:
+        x: 24
+        y: 68
+      positionAbsolute:
+        x: 1284
+        y: 268
+      selectable: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom-iteration-start
+      width: 44
+      zIndex: 1002
+
+    # ============================================================
+    # 6. 広告コピー生成（Gemini LLM - 省略なし全文出力）
+    # ============================================================
+    - data:
+        context:
+          enabled: false
+          variable_selector: []
+        model:
+          completion_params:
+            temperature: 0.8
+          mode: chat
+          name: gemini-2.5-flash
+          provider: langgenius/gemini/google
+        prompt_template:
+        - id: ad-copy-system-prompt
+          role: system
+          text: 'あなたはプロの広告コピーライターです。バンタン（VANTAN）の各スクール向けに、広告動画用のナレーションコピーを生成してください。
+
+            【重要な制約】
+            - 文字の省略は一切しないでください
+            - 全文を完全に出力してください
+            - 文字数制限はありません
+            - 自然な話し言葉で、動画ナレーションに適した文体にしてください
+            - 「、」「。」「!」「？」を境目にカットが切り替わります'
+        - id: ad-copy-user-prompt
+          role: user
+          text: "以下のスクール情報をもとに、広告動画用のナレーションコピーを生成してください。\n\n\
+            【スクール情報】\n\
+            - スクール名: {{school_name}}\n\
+            - スクール概要: {{school_overview}}\n\
+            - 訴求ポイント: {{appeal_points}}\n\
+            - キーメッセージ: {{key_message}}\n\
+            - ターゲット層: {{target_audience}}\n\
+            - ブランドトーン: {{brand_tone}}\n\n\
+            【出力形式】\n\
+            ナレーション全文のみを出力してください。セクション分けや見出しは不要です。\n\
+            省略せず、必ず全文を出力してください。"
+        selected: false
+        title: 広告コピー生成
+        type: llm
+        vision:
+          enabled: false
+      height: 88
+      id: '1900000000006'
+      parentId: '1900000000005'
+      position:
+        x: 128
+        y: 100
+      positionAbsolute:
+        x: 1388
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 7. 漢数字化/スクリプト分割（コピーテキストをセグメント化）
+    # ============================================================
+    - data:
+        code: "import re\n\ndef main(script: str) -> dict:\n    kansuji_map = {\n\
+          \        '0': '\uFF10', '1': '\uFF11', '2': '\uFF12', '3': '\uFF13',\n \
+          \       '4': '\uFF14', '5': '\uFF15', '6': '\uFF16', '7': '\uFF17',\n  \
+          \      '8': '\uFF18', '9': '\uFF19'\n    }\n    converted = ''.join(kansuji_map.get(c,\
+          \ c) for c in script)\n    \n    segments = re.split(r'[\u3001\u3002!\\?\uFF01\uFF1F]',\
+          \ converted)\n    audio_segments = [s.strip() for s in segments if s.strip()]\n\
+          \    caption_segments = [s.strip() for s in segments if s.strip()]\n    \n\
+          \    return {\n        \"audio_segments\": audio_segments,\n        \"caption_segments\"\
+          : caption_segments\n    }"
+        code_language: python3
+        outputs:
+          audio_segments:
+            children: null
+            type: array[string]
+          caption_segments:
+            children: null
+            type: array[string]
+        selected: false
+        title: 漢数字化/スクリプト分割
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000006'
+          - text
+          value_type: string
+          variable: script
+      height: 52
+      id: '1900000000007'
+      parentId: '1900000000005'
+      position:
+        x: 420
+        y: 100
+      positionAbsolute:
+        x: 1680
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 8. ナレーション音声生成（ElevenLabs via fal.run - 全文渡し）
+    # ============================================================
+    - data:
+        authorization:
+          config:
+            api_key: ''
+            header: Authorization
+            type: custom
+          type: api-key
+        body:
+          data:
+          - id: key-value-elevenlabs
+            key: ''
+            type: text
+            value: "{\n  \"text\": \"{{#1900000000007.audio_segments#}}\",\n  \"voice\"\
+              : \"{{#1900000000004.voice_id#}}\",\n  \"voice_settings\": {\n    \"\
+              stability\": 0.35,\n    \"similarity_boost\": 0.8,\n    \"style\": 0.45,\n\
+              \    \"use_speaker_boost\": true\n  }\n}"
+          type: json
+        headers: Content-Type:application/json
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 100
+        selected: false
+        ssl_verify: true
+        timeout:
+          connect: 10
+          max_connect_timeout: 0
+          max_read_timeout: 0
+          max_write_timeout: 0
+          read: 600
+        title: ナレーション音声生成
+        type: http-request
+        url: https://fal.run/fal-ai/elevenlabs/tts/eleven-v3
+        variables: []
+      height: 138
+      id: '1900000000008'
+      parentId: '1900000000005'
+      position:
+        x: 712
+        y: 100
+      positionAbsolute:
+        x: 1972
+        y: 300
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 9. 音声URL抽出
+    # ============================================================
+    - data:
+        code: "import json\n\ndef main(body: str) -> dict:\n    try:\n        data\
+          \ = json.loads(body)\n        audio_url = data.get(\"audio_url\", \"\")\n\
+          \        if not audio_url:\n            audio_url = data.get(\"url\", \"\"\
+          )\n        return {\"audio_url\": audio_url}\n    except Exception:\n   \
+          \     return {\"audio_url\": \"\"}"
+        code_language: python3
+        outputs:
+          audio_url:
+            children: null
+            type: string
+        selected: false
+        title: 音声URL抽出
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000008'
+          - body
+          value_type: string
+          variable: body
+      height: 52
+      id: '1900000000009'
+      parentId: '1900000000005'
+      position:
+        x: 420
+        y: 280
+      positionAbsolute:
+        x: 1680
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 10. creatomate連携（動画生成）
+    # ============================================================
+    - data:
+        authorization:
+          config: null
+          type: no-auth
+        body:
+          data:
+          - id: key-value-creatomate
+            key: ''
+            type: text
+            value: "{{#1900000000009b.creatomate_payload#}}"
+          type: json
+        headers: 'Authorization:Bearer YOUR_CREATOMATE_API_KEY'
+        isInIteration: true
+        isInLoop: false
+        iteration_id: '1900000000005'
+        method: post
+        params: ''
+        retry_config:
+          max_retries: 3
+          retry_enabled: true
+          retry_interval: 5000
+        selected: false
+        ssl_verify: true
+        timeout:
+          max_connect_timeout: 0
+          max_read_timeout: 0
+          max_write_timeout: 0
+          read: 600
+        title: creatomate連携
+        type: http-request
+        url: https://api.creatomate.com/v1/renders
+        variables: []
+      height: 138
+      id: '1900000000010'
+      parentId: '1900000000005'
+      position:
+        x: 712
+        y: 280
+      positionAbsolute:
+        x: 1972
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 10b. 編集（Creatomateペイロード組み立て）
+    # ============================================================
+    - data:
+        code: "import json\n\ndef main(Audio_Source: str, Caption_Source: list, Product_Name:\
+          \ str, Logo_URL: str, Annotation_Text: str, Insert_Media_URL: str, Original_Source:\
+          \ list) -> dict:\n    payload = {\n        \"template_id\": \"YOUR_TEMPLATE_ID\"\
+          ,\n        \"modifications\": {\n            \"School-Name\": Product_Name,\n\
+          \            \"Narration-Audio\": Audio_Source,\n            \"Ad-Copy\":\
+          \ \" \".join(Original_Source) if Original_Source else \"\",\n            \"\
+          Caption\": \" \".join(Caption_Source) if Caption_Source else \"\",\n     \
+          \       \"Logo\": Logo_URL,\n            \"Annotation\": Annotation_Text,\n\
+          \            \"Insert-Media\": Insert_Media_URL\n        }\n    }\n    return\
+          \ {\"creatomate_payload\": json.dumps(payload, ensure_ascii=False)}"
+        code_language: python3
+        outputs:
+          creatomate_payload:
+            children: null
+            type: string
+        selected: false
+        title: 編集
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000009'
+          - audio_url
+          value_type: string
+          variable: Audio_Source
+        - value_selector:
+          - '1900000000007'
+          - caption_segments
+          value_type: array[string]
+          variable: Caption_Source
+        - value_selector:
+          - '1900000000005'
+          - item
+          value_type: object
+          variable: school_item
+        - value_selector:
+          - '1900000000001'
+          - logo_url
+          value_type: string
+          variable: Logo_URL
+        - value_selector:
+          - '1900000000001'
+          - annotation_text
+          value_type: string
+          variable: Annotation_Text
+        - value_selector:
+          - '1900000000001'
+          - ui_media_url
+          value_type: string
+          variable: Insert_Media_URL
+        - value_selector:
+          - '1900000000007'
+          - audio_segments
+          value_type: array[string]
+          variable: Original_Source
+      height: 52
+      id: 1900000000009b
+      parentId: '1900000000005'
+      position:
+        x: 420
+        y: 380
+      positionAbsolute:
+        x: 1680
+        y: 580
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 11. 出力をURLのみに変更
+    # ============================================================
+    - data:
+        code: "import json\n\ndef main(creatomate_response: str) -> dict:\n    try:\n\
+          \        data = json.loads(creatomate_response)\n        if isinstance(data,\
+          \ list) and len(data) > 0:\n            render = data[0]\n        else:\n\
+          \            render = data\n        video_url = render.get(\"url\", \"\")\n\
+          \        return {\"final_video_url\": video_url if video_url else \"レンダリング中\"\
+          }\n    except Exception as e:\n        return {\"final_video_url\": f\"エラー\
+          : {str(e)}\"}"
+        code_language: python3
+        outputs:
+          final_video_url:
+            children: null
+            type: string
+        selected: false
+        title: 出力をURLのみに変更
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000010'
+          - body
+          value_type: string
+          variable: creatomate_response
+      height: 52
+      id: '1900000000011'
+      parentId: '1900000000005'
+      position:
+        x: 1004
+        y: 280
+      positionAbsolute:
+        x: 2264
+        y: 480
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+      zIndex: 1002
+
+    # ============================================================
+    # 12. 結果整形（イテレーション後）
+    # ============================================================
+    - data:
+        code: "import json\n\ndef main(iteration_output: list, count: int) -> dict:\n\
+          \    results = []\n    for i, url in enumerate(iteration_output):\n     \
+          \   results.append(f\"スクール{i+1}: {url}\")\n    result_text = \"\\n\".join(results)\n\
+          \    return {\"final_video_url\": f\"処理完了: {count}校\\n{result_text}\"}"
+        code_language: python3
+        outputs:
+          final_video_url:
+            children: null
+            type: string
+        selected: false
+        title: 結果整形
+        type: code
+        variables:
+        - value_selector:
+          - '1900000000005'
+          - output
+          value_type: array[string]
+          variable: iteration_output
+        - value_selector:
+          - '1900000000003'
+          - count
+          value_type: number
+          variable: count
+      height: 52
+      id: '1900000000012'
+      position:
+        x: 2560
+        y: 400
+      positionAbsolute:
+        x: 2560
+        y: 400
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242
+
+    # ============================================================
+    # 13. 出力（エンドノード）
+    # ============================================================
+    - data:
+        outputs:
+        - value_selector:
+          - '1900000000012'
+          - final_video_url
+          value_type: string
+          variable: result
+        selected: false
+        title: 出力
+        type: end
+      height: 88
+      id: '1900000000013'
+      position:
+        x: 2860
+        y: 400
+      positionAbsolute:
+        x: 2860
+        y: 400
+      selected: false
+      sourcePosition: right
+      targetPosition: left
+      type: custom
+      width: 242

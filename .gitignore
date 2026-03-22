@@ -1,0 +1,18 @@
+# Secrets
+.env
+
+# OS
+.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# Claude Code
+.claude/
+
+# Nested git repo (will be added as regular files)
+notion-secretary-api/.git/
