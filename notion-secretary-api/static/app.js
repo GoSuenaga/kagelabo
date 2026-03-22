@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.6';
+const VERSION = 'v0.7';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -120,12 +120,12 @@ async function get(path) {
 }
 
 // ── Response renderer ─────────────────────────────
-const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶', done:'🗑️ 完了' };
+const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶', done:'🗑️ 完了', debug:'🐛 バグ報告' };
 
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
 
-  if (saved === true || ['memo','idea','task','schedule','profile'].includes(intent)) {
+  if (saved === true || ['memo','idea','task','schedule','profile','debug'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
     addMsg('kage', `${b}${esc(message||'保存しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`, 'saved');
     return;

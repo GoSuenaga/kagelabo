@@ -50,6 +50,7 @@ DB = {
     "Memos":    os.environ.get("NOTION_DB_MEMOS",     "327c70f7-0203-806c-b2c6-fddc6be00a68"),
     "Profile":  os.environ.get("NOTION_DB_PROFILE",   "32bc70f7-0203-81d9-8ecf-e00a9f17562f"),
     "ChatLog":  os.environ.get("NOTION_DB_CHATLOG",  "32bc70f7-0203-8178-bbf0-caf5888cba22"),
+    "Debug":    os.environ.get("NOTION_DB_DEBUG",    "32bc70f7-0203-817e-8310-d3f87d3d8b10"),
 }
 
 BASE = "https://api.notion.com/v1"
@@ -409,7 +410,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23i",
+        "version": "2026-03-23j",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -558,6 +559,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
 - upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
+- debug: バグ報告。「バグ:」「不具合:」「おかしい」で始まるもの
 - think: 整理して・優先順位・何から・頭の中
 - answer: それ以外すべて。質問・相談・依頼・報告・長文の情報共有。迷ったらanswer
 
@@ -654,6 +656,8 @@ def _summarize_via_gemini(instruction: str, data: str) -> str:
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
     text = message.lower()
+    if any(k in text for k in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:"]):
+        return {"intent": "debug", "title": message, "content": "", "date": ""}
     if any(k in text for k in ["もうやった", "終わった", "いらない", "消して", "削除して", "もう食べた", "もう買った"]):
         return {"intent": "done", "title": message, "content": "", "date": ""}
     is_request = any(k in text for k in ["してください", "して", "まとめて", "教えて", "知ってる", "作って"])
@@ -1029,6 +1033,42 @@ def chat(req: ChatRequest):
             })
         else:
             return _respond({"intent": "done", "message": f"「{query}」に該当するアイテムが見つかりませんでした。", "saved": False, "archived": False})
+
+    # --- debug (バグ報告) ---
+    if intent == "debug":
+        try:
+            report_text = text
+            for prefix in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:"]:
+                if report_text.lower().startswith(prefix.lower()):
+                    report_text = report_text[len(prefix):].strip()
+                    break
+            context_lines = ""
+            if sid and sid in CONVERSATIONS:
+                recent = CONVERSATIONS[sid]["msgs"][-10:]
+                lines = []
+                for m in recent:
+                    prefix_label = "ボス" if m["role"] == "user" else "影"
+                    lines.append(f"{prefix_label}: {m['content'][:300]}")
+                context_lines = "\n".join(lines)
+            props = {
+                "名前": {"title": [{"text": {"content": report_text[:100]}}]},
+                "内容": {"rich_text": [{"text": {"content": report_text[:2000]}}]},
+                "ステータス": {"select": {"name": "未対応"}},
+                "日付": {"date": {"start": date.today().isoformat()}},
+            }
+            if context_lines:
+                props["会話コンテキスト"] = {"rich_text": [{"text": {"content": context_lines[:2000]}}]}
+            r = requests.post(
+                "https://api.notion.com/v1/pages",
+                headers=NOTION_H,
+                json={"parent": {"database_id": DB["Debug"]}, "properties": props},
+            )
+            if r.status_code == 200:
+                return _respond({"intent": "debug", "message": f"バグ報告を記録しました。\n📋 {report_text[:80]}\n直近の会話コンテキストも保存済みです。", "saved": True})
+            else:
+                return _respond({"intent": "debug", "message": f"バグ報告の保存に失敗しました: {r.text[:200]}", "saved": False})
+        except Exception as e:
+            return _respond({"intent": "debug", "message": f"バグ報告の処理中にエラーが発生しました: {str(e)}", "saved": False})
 
     # --- today ---
     if intent == "today":
