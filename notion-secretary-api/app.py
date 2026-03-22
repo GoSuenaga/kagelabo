@@ -710,7 +710,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-24a",
+        "version": "2026-03-24b",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,

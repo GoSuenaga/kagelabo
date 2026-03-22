@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.10';
+const VERSION = 'v0.11';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -156,9 +156,13 @@ function renderResponse(data, originalText) {
     return;
   }
 
-  if (saved === true || ['memo','idea','task','schedule','profile','debug'].includes(intent)) {
+  // memo / profile / debug などは saved===true のときだけ「保存済み」表示（失敗時の誤表示防止）
+  if (['memo','idea','task','schedule','profile','debug'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
-    addMsg('kage', `${b}${esc(message||'保存しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`, 'saved');
+    const foot = saved === true
+      ? '<br><span class="badge-save">✓ Notion保存済み</span>'
+      : '<br><span class="badge-save dim-save">※ Notionに保存できませんでした（再試行またはコピーログで共有ください）</span>';
+    addMsg('kage', `${b}${esc(message||'')}${foot}`, saved === true ? 'saved' : 'error');
     return;
   }
 
