@@ -44,6 +44,7 @@ DB = {
     "Tasks":    os.environ.get("NOTION_DB_TASKS",    "327c70f7-0203-8049-8a99-e724e3e54af8"),
     "Ideas":    os.environ.get("NOTION_DB_IDEAS",     "327c70f7-0203-8059-9f60-c51d25e45bf4"),
     "Memos":    os.environ.get("NOTION_DB_MEMOS",     "327c70f7-0203-806c-b2c6-fddc6be00a68"),
+    "Profile":  os.environ.get("NOTION_DB_PROFILE",   "32bc70f7-0203-81d9-8ecf-e00a9f17562f"),
 }
 
 BASE = "https://api.notion.com/v1"
@@ -514,7 +515,25 @@ def _fetch_brain() -> dict:
     except Exception:
         schedule = []
 
-    return {"memos": memos, "tasks": tasks, "ideas": ideas, "schedule": schedule}
+    # Profile: 全件取得
+    try:
+        profile_data = _notion_post(f"/databases/{DB['Profile']}/query", {
+            "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
+            "page_size": 100,
+        })
+        profile = []
+        for row in profile_data.get("results", []):
+            title = row["properties"]["名前"]["title"]
+            name = title[0]["plain_text"] if title else "(無題)"
+            cat_prop = row["properties"].get("カテゴリ", {}).get("select")
+            category = cat_prop["name"] if cat_prop else ""
+            content_rt = row["properties"].get("内容", {}).get("rich_text", [])
+            content = content_rt[0]["plain_text"] if content_rt else ""
+            profile.append({"category": category, "title": name, "content": content})
+    except Exception:
+        profile = []
+
+    return {"memos": memos, "tasks": tasks, "ideas": ideas, "schedule": schedule, "profile": profile}
 
 
 @app.get("/brain")
@@ -536,6 +555,7 @@ def think():
     brain = _fetch_brain()
 
     context = (
+        f"## ボスのプロフィール\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
         f"## メモ（直近20件）\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
         f"## タスク（直近20件）\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
         f"## アイデア（直近10件）\n{json.dumps(brain['ideas'], ensure_ascii=False)}\n\n"
