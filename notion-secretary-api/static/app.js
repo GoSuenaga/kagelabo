@@ -1,87 +1,153 @@
-// Go_KAGE Frontend
-const API = location.origin;
-let attachedImage = null;   // {base64, mimeType, dataUrl}
+'use strict';
 
-// ---------------------------------------------------------------------------
-// Chat
-// ---------------------------------------------------------------------------
+const API     = location.origin;
+const VERSION = 'v0.5';
+const BUILD   = '2026-03-23';
 
-async function sendMessage() {
-  const input = document.getElementById("msgInput");
-  const text = input.value.trim();
-  if (!text && !attachedImage) return;
+// DOM
+const chatArea      = document.getElementById('chatArea');
+const msgInput      = document.getElementById('msgInput');
+const btnSend       = document.getElementById('btnSend');
+const btnUpcoming   = document.getElementById('btnUpcoming');
+const btnReload     = document.getElementById('btnReload');
 
-  // Show user message
-  const userHtml = escapeHtml(text);
-  if (attachedImage) {
-    addMessage("user", userHtml + '<img src="' + attachedImage.dataUrl + '" alt="attached">');
-  } else {
-    addMessage("user", userHtml);
-  }
+const schedModal    = document.getElementById('scheduleModal');
+const schedTitle    = document.getElementById('schedTitle');
+const schedDate     = document.getElementById('schedDate');
+const schedMemo     = document.getElementById('schedMemo');
+const modalSave     = document.getElementById('modalSave');
+const modalCancel   = document.getElementById('modalCancel');
 
-  input.value = "";
-  autoResize(input);
+const upcomingModal = document.getElementById('upcomingModal');
+const upcomingBody  = document.getElementById('upcomingBody');
+const upcomingClose = document.getElementById('upcomingClose');
+const headerDate    = document.getElementById('headerDate');
+const btnModel      = document.getElementById('btnModel');
+const modelModal    = document.getElementById('modelModal');
+const modelList     = document.getElementById('modelList');
+const modelClose    = document.getElementById('modelClose');
 
-  const body = { message: text || "この画像について教えて" };
-  if (attachedImage) {
-    body.image = attachedImage.base64;
-    body.mime_type = attachedImage.mimeType;
-  }
-  removeImage();
+let currentModel = 'gemini-2.5-flash';
 
-  const loadingEl = addMessage("bot", "...", "loading");
-
-  try {
-    const res = await fetch(API + "/chat", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    });
-    const data = await res.json();
-    loadingEl.remove();
-    addMessage("bot", escapeHtml(data.message || data.detail || "エラーが発生しました"));
-  } catch (e) {
-    loadingEl.remove();
-    addMessage("bot", "通信エラーが発生しました");
-  }
+// ── Helpers ───────────────────────────────────────
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function fmtDateHeader() {
+  const d = new Date();
+  return d.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
+}
+function todayStr() { return new Date().toISOString().slice(0,10); }
+function fmtDate(s) {
+  if (!s) return '';
+  const d = new Date(s);
+  if (isNaN(d)) return s;
+  return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric',weekday:'short'});
+}
+function scrollEnd() {
+  requestAnimationFrame(() => chatArea.scrollTo({top:chatArea.scrollHeight,behavior:'smooth'}));
 }
 
-// ---------------------------------------------------------------------------
-// Think (整理ボタン)
-// ---------------------------------------------------------------------------
-
-async function doThink() {
-  const btn = document.getElementById("thinkBtn");
-  btn.disabled = true;
-  btn.textContent = "考え中...";
-
-  const loadingEl = addMessage("bot", "Notionデータを分析中...", "loading");
-
-  try {
-    const res = await fetch(API + "/think", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-    });
-    const data = await res.json();
-    loadingEl.remove();
-    renderThinkResult(data.message || "データなし");
-  } catch (e) {
-    loadingEl.remove();
-    addMessage("bot", "整理に失敗しました。通信エラーです。");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "\u{1F9E0} 整理";
+// ── Chat render ───────────────────────────────────
+function addMsg(role, html, cls='') {
+  const row = document.createElement('div');
+  row.className = `row ${role}`;
+  if (role === 'kage') {
+    const av = document.createElement('div');
+    av.className = 'avatar'; av.textContent = '影';
+    row.appendChild(av);
   }
+  const bbl = document.createElement('div');
+  bbl.className = `bubble ${cls}`;
+  bbl.innerHTML = html;
+  row.appendChild(bbl);
+  chatArea.appendChild(row);
+  scrollEnd();
+  return bbl;
+}
+function addUser(text) { addMsg('user', esc(text)); }
+
+let typingEl = null;
+function showTyping() {
+  const row = document.createElement('div');
+  row.className = 'row kage'; row.id = 'typing';
+  const av = document.createElement('div');
+  av.className = 'avatar'; av.textContent = '影';
+  row.appendChild(av);
+  const bbl = document.createElement('div');
+  bbl.className = 'bubble';
+  bbl.innerHTML = '<div class="typing"><span></span><span></span><span></span></div>';
+  row.appendChild(bbl);
+  chatArea.appendChild(row);
+  typingEl = row; scrollEnd();
+}
+function hideTyping() { typingEl && (typingEl.remove(), typingEl = null); }
+
+// ── Welcome ───────────────────────────────────────
+function showWelcome() {
+  const h = new Date().getHours();
+  const g = h < 12 ? 'おはようございます' : h < 18 ? 'お疲れ様です' : 'お疲れ様です';
+  addMsg('kage', `
+    <div class="welcome">
+      <strong>${g}、ボス。</strong><br>
+      影がNotionの管理をサポートいたします。<br><br>
+      📝 メモ・💡 アイデア → 保存<br>
+      📅 予定ボタン → 日時つきで保存<br>
+      🧠 整理ボタン → タスクを整理<br>
+      📆 右上カレンダー → 今後の予定確認
+    </div>
+  `);
 }
 
+// ── API ───────────────────────────────────────────
+async function post(path, body) {
+  const r = await fetch(`${API}${path}`,{
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body)
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+async function get(path) {
+  const r = await fetch(`${API}${path}`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+// ── Response renderer ─────────────────────────────
+const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定' };
+
+function renderResponse(data, originalText) {
+  const { intent, message, saved } = data;
+
+  if (saved === true || ['memo','idea','task','schedule'].includes(intent)) {
+    const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
+    addMsg('kage', `${b}${esc(message||'保存しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`, 'saved');
+    return;
+  }
+
+  if (['unknown','unknown_question','unclear'].includes(intent)) {
+    addMsg('kage', `
+      ${esc(message||'どのように保存しますか？')}
+      <div class="confirm-row">
+        <button class="cfm-btn" data-confirm="memo"  data-orig="${esc(originalText||'')}">📝 メモ</button>
+        <button class="cfm-btn" data-confirm="idea"  data-orig="${esc(originalText||'')}">💡 アイデア</button>
+        <button class="cfm-btn" data-confirm="skip">キャンセル</button>
+      </div>
+    `, 'warn');
+    return;
+  }
+
+  addMsg('kage', esc(message||'承知しました。'));
+}
+
+// ── Think result renderer ─────────────────────────
 function renderThinkResult(text) {
-  const chatArea = document.getElementById("chatArea");
-  const div = document.createElement("div");
-  div.className = "think-result";
-
-  // Parse sections
   const sections = text.split(/(?=【)/);
-  let html = "";
+  let html = '';
 
   for (const section of sections) {
     const trimmed = section.trim();
@@ -91,89 +157,237 @@ function renderThinkResult(text) {
     if (match) {
       const title = match[1];
       const body = match[2].trim();
-      html += '<div class="section-title">' + escapeHtml(title) + "</div>";
+      html += '<div class="think-section-title">' + esc(title) + '</div>';
 
-      if (title === "今すぐやること") {
-        html += '<div class="highlight">' + escapeHtml(body) + "</div>";
+      if (title === '今すぐ') {
+        html += '<div class="think-highlight">' + esc(body) + '</div>';
       } else {
-        const lines = body.split("\n").filter((l) => l.trim());
+        const lines = body.split('\n').filter(l => l.trim());
         for (const line of lines) {
-          html += '<div class="item">' + escapeHtml(line) + "</div>";
+          html += '<div class="think-item">' + esc(line) + '</div>';
         }
       }
     } else {
-      html += '<div class="item">' + escapeHtml(trimmed) + "</div>";
+      html += '<div class="think-item">' + esc(trimmed) + '</div>';
     }
   }
 
-  div.innerHTML = html || '<div class="item">' + escapeHtml(text) + "</div>";
-  chatArea.appendChild(div);
-  chatArea.scrollTop = chatArea.scrollHeight;
+  addMsg('kage', '<div class="think-section">' + (html || esc(text)) + '</div>');
 }
 
-// ---------------------------------------------------------------------------
-// Image
-// ---------------------------------------------------------------------------
-
-function handleImage(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = function (e) {
-    const dataUrl = e.target.result;
-    const base64 = dataUrl.split(",")[1];
-    attachedImage = {
-      base64: base64,
-      mimeType: file.type || "image/jpeg",
-      dataUrl: dataUrl,
-    };
-
-    document.getElementById("previewImg").src = dataUrl;
-    document.getElementById("imagePreview").classList.add("active");
-  };
-  reader.readAsDataURL(file);
-  event.target.value = "";
+// ── Send ──────────────────────────────────────────
+async function handleSend() {
+  const text = msgInput.value.trim();
+  if (!text) return;
+  addUser(text);
+  msgInput.value = ''; autoResize();
+  showTyping();
+  try {
+    const data = await post('/chat',{message:text});
+    hideTyping();
+    renderResponse(data, text);
+  } catch(e) {
+    hideTyping();
+    addMsg('kage',`ボス、通信エラーが発生しました。`,'error');
+  }
 }
 
-function removeImage() {
-  attachedImage = null;
-  document.getElementById("imagePreview").classList.remove("active");
-  document.getElementById("previewImg").src = "";
-}
-
-// ---------------------------------------------------------------------------
-// UI Helpers
-// ---------------------------------------------------------------------------
-
-function addMessage(role, html, extraClass) {
-  const chatArea = document.getElementById("chatArea");
-  const div = document.createElement("div");
-  div.className = "msg " + role + (extraClass ? " " + extraClass : "");
-  div.innerHTML = html;
-  chatArea.appendChild(div);
-  chatArea.scrollTop = chatArea.scrollHeight;
-  return div;
-}
-
-function escapeHtml(text) {
-  const d = document.createElement("div");
-  d.textContent = text;
-  return d.innerHTML;
-}
-
-function autoResize(el) {
-  el.style.height = "auto";
-  el.style.height = Math.min(el.scrollHeight, 120) + "px";
-}
-
-// Enter to send (Shift+Enter for newline)
-document.addEventListener("DOMContentLoaded", function () {
-  const input = document.getElementById("msgInput");
-  input.addEventListener("keydown", function (e) {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      sendMessage();
-    }
+// ── Quick actions ─────────────────────────────────
+document.querySelectorAll('.qa').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const a = btn.dataset.action;
+    if (a === 'schedule') { openSched(); return; }
+    if (a === 'brain') { handleThink(); return; }
+    const prefix = { memo:'メモ: ', idea:'アイデア: ' }[a];
+    if (prefix) { msgInput.value = prefix; msgInput.focus(); autoResize(); }
   });
 });
+
+// ── Think (整理ボタン) — /think エンドポイント使用 ──
+async function handleThink() {
+  addUser('整理して');
+  showTyping();
+  try {
+    const data = await post('/think', {});
+    hideTyping();
+    renderThinkResult(data.message || 'ボス、データがありません。');
+  } catch(e) {
+    hideTyping();
+    addMsg('kage','ボス、整理に失敗しました。通信エラーです。','error');
+  }
+}
+
+// ── Confirm bubble buttons ────────────────────────
+chatArea.addEventListener('click', async e => {
+  const btn = e.target.closest('[data-confirm]');
+  if (!btn) return;
+  const act  = btn.dataset.confirm;
+  const orig = btn.dataset.orig || '';
+  btn.closest('.confirm-row')?.remove();
+  if (act === 'skip') { addMsg('kage','承知しました。'); return; }
+  if (!orig) return;
+  showTyping();
+  try {
+    if (act === 'memo') {
+      await post('/memo',{title:orig,content:''});
+      hideTyping(); addMsg('kage',`📝 メモとして保存しました。<br><span class="badge-save">✓ Notion保存済み</span>`,'saved');
+    } else if (act === 'idea') {
+      await post('/idea',{title:orig,content:''});
+      hideTyping(); addMsg('kage',`💡 アイデアとして保存しました。<br><span class="badge-save">✓ Notion保存済み</span>`,'saved');
+    }
+  } catch(e) {
+    hideTyping(); addMsg('kage',`ボス、保存に失敗しました。`,'error');
+  }
+});
+
+// ── Schedule modal ────────────────────────────────
+function openSched() {
+  schedDate.value = todayStr();
+  schedTitle.value = schedMemo.value = '';
+  schedModal.classList.add('open');
+  setTimeout(()=>schedTitle.focus(),300);
+}
+function closeSched() { schedModal.classList.remove('open'); }
+
+async function saveSched() {
+  const title = schedTitle.value.trim();
+  const date  = schedDate.value.trim();
+  const memo  = schedMemo.value.trim();
+  if (!title||!date) {
+    schedTitle.style.borderColor = !title ? 'var(--red)' : '';
+    schedDate.style.borderColor  = !date  ? 'var(--red)' : '';
+    return;
+  }
+  schedTitle.style.borderColor = schedDate.style.borderColor = '';
+  modalSave.disabled = true;
+  closeSched();
+  addUser(`予定: ${title}（${date}）${memo?' — '+memo:''}`);
+  showTyping();
+  try {
+    await post('/schedule',{title,date,memo});
+    hideTyping();
+    addMsg('kage',`📅 <strong>${esc(title)}</strong><br>${fmtDate(date)}<br><span class="badge-save">✓ Notion保存済み</span>`,'saved');
+  } catch(e) {
+    hideTyping(); addMsg('kage',`ボス、保存に失敗しました。`,'error');
+  } finally { modalSave.disabled = false; }
+}
+
+modalSave.addEventListener('click', saveSched);
+modalCancel.addEventListener('click', closeSched);
+schedModal.addEventListener('click', e => { if(e.target===schedModal) closeSched(); });
+[schedTitle,schedDate,schedMemo].forEach(el =>
+  el.addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();saveSched();} })
+);
+
+// ── Upcoming modal ────────────────────────────────
+btnUpcoming.addEventListener('click', async () => {
+  upcomingModal.classList.add('open');
+  upcomingBody.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  try {
+    const data = await get('/upcoming?days=14');
+    renderUpcomingModal(data);
+  } catch(e) {
+    upcomingBody.innerHTML = `<p class="empty-msg">取得できませんでした。</p>`;
+  }
+});
+
+function renderUpcomingModal(data) {
+  let items = Array.isArray(data) ? data
+    : data?.schedules || data?.results || data?.data || [];
+  if (!items.length) {
+    upcomingBody.innerHTML = '<p class="empty-msg">ボス、直近14日の予定はありません。</p>';
+    return;
+  }
+  let h = '<div class="upcoming-list" style="padding-bottom:4px">';
+  items.slice(0,20).forEach(s => {
+    const t = s.title||s.Title||s.name||'';
+    const d = s.date||s.Date||s.scheduled_at||'';
+    const m = s.memo||s.Memo||s.note||'';
+    h += `<div class="upcoming-item">
+      <div class="item-date">${fmtDate(d)}</div>
+      <div class="item-title">${esc(t)}</div>
+      ${m?`<div class="item-memo">${esc(m)}</div>`:''}
+    </div>`;
+  });
+  h += '</div>';
+  upcomingBody.innerHTML = h;
+}
+
+upcomingClose.addEventListener('click', () => upcomingModal.classList.remove('open'));
+upcomingModal.addEventListener('click', e => { if(e.target===upcomingModal) upcomingModal.classList.remove('open'); });
+
+// ── Model modal ───────────────────────────────────
+btnModel.addEventListener('click', async () => {
+  modelModal.classList.add('open');
+  modelList.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+  try {
+    const data = await get('/models');
+    currentModel = data.current || currentModel;
+    renderModelList(data);
+  } catch(e) {
+    modelList.innerHTML = `<p class="empty-msg">取得できませんでした。</p>`;
+  }
+});
+
+function renderModelList(data) {
+  const models = data.models || [];
+  let h = '';
+  models.forEach(m => {
+    const active = m.id === data.current ? 'active' : '';
+    const check  = m.id === data.current ? '<span class="model-check">✓</span>' : '';
+    h += `
+      <div class="model-item ${active}" data-model="${esc(m.id)}">
+        <div>
+          <div class="model-name">${esc(m.label)}</div>
+          <div class="model-desc">${esc(m.id)}</div>
+        </div>
+        ${check}
+      </div>`;
+  });
+  modelList.innerHTML = h;
+
+  modelList.querySelectorAll('.model-item').forEach(el => {
+    el.addEventListener('click', async () => {
+      const modelId = el.dataset.model;
+      try {
+        await post(`/models/${modelId}`, {});
+        currentModel = modelId;
+        modelList.querySelectorAll('.model-item').forEach(i => {
+          i.classList.toggle('active', i.dataset.model === modelId);
+          const chk = i.querySelector('.model-check');
+          if (chk) chk.remove();
+        });
+        el.insertAdjacentHTML('beforeend','<span class="model-check">✓</span>');
+        addMsg('kage', `🤖 モデルを <strong>${esc(modelId)}</strong> に切り替えました。`);
+        modelModal.classList.remove('open');
+      } catch(e) {
+        addMsg('kage', `ボス、切り替えに失敗しました。`, 'error');
+        modelModal.classList.remove('open');
+      }
+    });
+  });
+}
+
+modelClose.addEventListener('click', () => modelModal.classList.remove('open'));
+modelModal.addEventListener('click', e => { if(e.target===modelModal) modelModal.classList.remove('open'); });
+
+// ── Reload button ─────────────────────────────────
+btnReload.addEventListener('click', () => {
+  btnReload.classList.add('spinning');
+  setTimeout(() => location.reload(), 300);
+});
+
+// ── Input resize ──────────────────────────────────
+function autoResize() {
+  msgInput.style.height = 'auto';
+  msgInput.style.height = Math.min(msgInput.scrollHeight, 110) + 'px';
+}
+msgInput.addEventListener('input', autoResize);
+msgInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+});
+btnSend.addEventListener('click', handleSend);
+
+// ── Init ──────────────────────────────────────────
+if (headerDate) headerDate.textContent = fmtDateHeader();
+showWelcome();

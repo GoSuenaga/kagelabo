@@ -1,205 +1,109 @@
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Go_KAGE</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-    background: #0a0a0a;
-    color: #e0e0e0;
-    height: 100dvh;
-    display: flex;
-    flex-direction: column;
-  }
-
-  /* Header */
-  .header {
-    padding: 12px 16px;
-    background: #111;
-    border-bottom: 1px solid #222;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-  }
-  .header h1 {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-  }
-  .header .status {
-    font-size: 11px;
-    color: #666;
-  }
-  .think-btn {
-    background: #1a1a2e;
-    border: 1px solid #333;
-    color: #a78bfa;
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-  }
-  .think-btn:active { background: #2a2a4e; }
-  .think-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  /* Chat area */
-  .chat-area {
-    flex: 1;
-    overflow-y: auto;
-    padding: 16px;
-    -webkit-overflow-scrolling: touch;
-  }
-  .msg {
-    max-width: 85%;
-    margin-bottom: 12px;
-    padding: 10px 14px;
-    border-radius: 16px;
-    font-size: 15px;
-    line-height: 1.5;
-    word-break: break-word;
-    white-space: pre-wrap;
-  }
-  .msg.user {
-    background: #1e3a5f;
-    margin-left: auto;
-    border-bottom-right-radius: 4px;
-  }
-  .msg.bot {
-    background: #1a1a1a;
-    border: 1px solid #2a2a2a;
-    border-bottom-left-radius: 4px;
-  }
-  .msg img {
-    max-width: 200px;
-    border-radius: 8px;
-    margin-top: 8px;
-    display: block;
-  }
-
-  /* Think result */
-  .think-result {
-    background: #111;
-    border: 1px solid #333;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 12px;
-  }
-  .think-result .section-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: #a78bfa;
-    margin-bottom: 4px;
-    margin-top: 12px;
-  }
-  .think-result .section-title:first-child { margin-top: 0; }
-  .think-result .highlight {
-    font-size: 18px;
-    font-weight: 700;
-    color: #fff;
-    margin-bottom: 8px;
-  }
-  .think-result .item {
-    font-size: 14px;
-    color: #ccc;
-    padding: 2px 0;
-  }
-
-  /* Input area */
-  .input-area {
-    padding: 8px 12px;
-    padding-bottom: max(8px, env(safe-area-inset-bottom));
-    background: #111;
-    border-top: 1px solid #222;
-    display: flex;
-    align-items: flex-end;
-    gap: 8px;
-  }
-  .image-btn {
-    background: none;
-    border: none;
-    color: #666;
-    font-size: 24px;
-    cursor: pointer;
-    padding: 8px;
-    flex-shrink: 0;
-  }
-  .image-btn:active { color: #a78bfa; }
-  .input-area textarea {
-    flex: 1;
-    background: #1a1a1a;
-    border: 1px solid #333;
-    border-radius: 20px;
-    color: #e0e0e0;
-    padding: 10px 16px;
-    font-size: 15px;
-    resize: none;
-    max-height: 120px;
-    line-height: 1.4;
-  }
-  .input-area textarea::placeholder { color: #555; }
-  .send-btn {
-    background: #a78bfa;
-    border: none;
-    color: #000;
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    font-size: 18px;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  /* Image preview */
-  .image-preview {
-    display: none;
-    padding: 4px 12px;
-    background: #111;
-  }
-  .image-preview.active { display: flex; align-items: center; gap: 8px; }
-  .image-preview img {
-    width: 48px;
-    height: 48px;
-    object-fit: cover;
-    border-radius: 8px;
-  }
-  .image-preview .remove-img {
-    background: none;
-    border: none;
-    color: #f66;
-    font-size: 20px;
-    cursor: pointer;
-  }
-
-  .loading { color: #666; font-style: italic; }
-</style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+  <meta name="theme-color" content="#0d0d0d">
+  <title>KAGE</title>
+  <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
 
-<div class="header">
-  <h1>Go_KAGE</h1>
-  <button class="think-btn" id="thinkBtn" onclick="doThink()">&#129504; &#25972;&#29702;</button>
-</div>
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <span class="header-icon">影</span>
+      <div>
+        <div class="header-title">KAGE <span class="ver-badge">v0.5</span></div>
+        <div class="header-sub" id="headerDate">Go's Shadow</div>
+      </div>
+    </div>
+    <div class="header-right">
+      <button class="icon-btn" id="btnModel" title="モデル切り替え">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
+      </button>
+      <button class="icon-btn" id="btnReload" title="更新">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+      </button>
+      <button class="icon-btn" id="btnUpcoming" title="今後の予定">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+      </button>
+    </div>
+  </header>
 
-<div class="chat-area" id="chatArea"></div>
+  <!-- Chat -->
+  <main class="chat" id="chatArea"></main>
 
-<div class="image-preview" id="imagePreview">
-  <img id="previewImg" src="" alt="preview">
-  <span style="color:#999;font-size:13px">&#30011;&#20687;&#28155;&#20184;</span>
-  <button class="remove-img" onclick="removeImage()">&times;</button>
-</div>
+  <!-- Model Modal -->
+  <div class="modal-overlay" id="modelModal">
+    <div class="modal-sheet">
+      <div class="modal-bar"></div>
+      <h3 class="modal-title">🤖 AIモデル切り替え</h3>
+      <div id="modelList" class="model-list">
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary full" id="modelClose">閉じる</button>
+      </div>
+    </div>
+  </div>
 
-<div class="input-area">
-  <button class="image-btn" onclick="document.getElementById('imageInput').click()">&#128247;</button>
-  <input type="file" id="imageInput" accept="image/*" capture="environment" style="display:none" onchange="handleImage(event)">
-  <textarea id="msgInput" placeholder="&#12513;&#12483;&#12475;&#12540;&#12472;&#12434;&#20837;&#21147;..." rows="1" oninput="autoResize(this)"></textarea>
-  <button class="send-btn" id="sendBtn" onclick="sendMessage()">&#9650;</button>
-</div>
+  <!-- Schedule Modal -->
+  <div class="modal-overlay" id="scheduleModal">
+    <div class="modal-sheet">
+      <div class="modal-bar"></div>
+      <h3 class="modal-title">📅 予定を追加</h3>
+      <div class="form-group">
+        <label>タイトル <span class="req">*</span></label>
+        <input type="text" id="schedTitle" placeholder="例: クライアント定例" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>日付 <span class="req">*</span></label>
+        <input type="date" id="schedDate">
+      </div>
+      <div class="form-group">
+        <label>メモ</label>
+        <input type="text" id="schedMemo" placeholder="任意" autocomplete="off">
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="modalCancel">キャンセル</button>
+        <button class="btn-primary" id="modalSave">保存する</button>
+      </div>
+    </div>
+  </div>
 
-<script src="/static/app.js"></script>
+  <!-- Upcoming Modal -->
+  <div class="modal-overlay" id="upcomingModal">
+    <div class="modal-sheet">
+      <div class="modal-bar"></div>
+      <h3 class="modal-title">📆 今後の予定</h3>
+      <div id="upcomingBody" class="upcoming-body">
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary full" id="upcomingClose">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="qa-row">
+      <button class="qa" data-action="memo">📝<span>メモ</span></button>
+      <button class="qa" data-action="idea">💡<span>アイデア</span></button>
+      <button class="qa" data-action="schedule">📅<span>予定</span></button>
+      <button class="qa" data-action="brain">🧠<span>整理</span></button>
+    </div>
+    <div class="input-row">
+      <textarea id="msgInput" placeholder="話しかける…" rows="1"></textarea>
+      <button class="send-btn" id="btnSend">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+  </footer>
+
+  <script src="/static/app.js"></script>
 </body>
 </html>
