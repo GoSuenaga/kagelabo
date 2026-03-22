@@ -280,28 +280,60 @@ def _fetch_upcoming(days: int = 7) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Intent分類
+# Intent分類（Gemini API）
 # ---------------------------------------------------------------------------
 
-_SAVE_PATTERNS = {
-    "memo": re.compile(r"メモ|めも|memo", re.IGNORECASE),
-    "idea": re.compile(r"アイデア|ネタ|idea", re.IGNORECASE),
-    "schedule": re.compile(r"予定|スケジュール|schedule", re.IGNORECASE),
-}
+CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
+あなたはGo_KAGEという個人秘書AIです。
+ユーザーの入力を以下のルールで分類してください。
+返答はJSONのみ。余計な説明不要。
+
+{{"intent": "memo", "title": "タイトル20字以内", "content": "詳細"}}
+{{"intent": "idea", "title": "タイトル20字以内", "content": "詳細"}}
+{{"intent": "schedule", "title": "タイトル20字以内", "date": "YYYY-MM-DD", "memo": "補足"}}
+{{"intent": "today"}}
+{{"intent": "upcoming"}}
+{{"intent": "think"}}
+{{"intent": "unknown"}}
+
+分類ルール：
+- 締切・日時・「〜までに」「〜月〜日」が含まれる → schedule
+- 「買う」「する」「やる」「提出」「連絡」「修正」などのアクション → memo
+- ひらめき・アイデア・「〜したい」「〜どうかな」 → idea
+- 「今日何する」「今日のタスク」「今日どうする」 → today
+- 「今後の予定」「来週は」「今週は」 → upcoming
+- 「整理して」「優先順位」「何から」「頭の中」 → think
+- 質問・相談・それ以外 → unknown
+
+今日の日付: {today}
+「KAGE、」という呼びかけは無視して内容だけ判定すること。\
+"""
 
 
-def _classify_intent(text: str) -> str:
-    """簡易キーワードベースで保存系intentを判別。該当なし→question"""
-    save_keywords = re.compile(
-        r"保存|追加|登録|記録|入れ|書い|メモし|メモって|メモ:|残し",
-        re.IGNORECASE,
-    )
-    if not save_keywords.search(text):
-        return "question"
-    for intent, pat in _SAVE_PATTERNS.items():
-        if pat.search(text):
-            return intent
-    return "question"
+def _classify_intent_via_gemini(text: str) -> dict:
+    """Gemini APIでintentを分類。失敗時は {"intent": "unknown"} を返す"""
+    today_str = date.today().isoformat()
+    system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
+
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(gemini_url, json={
+            "system_instruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"parts": [{"text": text}]}],
+        }, timeout=15)
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        # JSON部分を抽出（```json ... ``` やテキスト混入対策）
+        raw = raw.strip()
+        if raw.startswith("```"):
+            raw = re.sub(r"^```\w*\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+        return json.loads(raw.strip())
+    except Exception:
+        return {"intent": "unknown"}
 
 
 # ---------------------------------------------------------------------------
@@ -472,49 +504,110 @@ class ChatRequest(BaseModel):
 @app.post("/chat")
 def chat(req: ChatRequest):
     """
-    メッセージを受け取り、保存系ならNotionに保存、
-    質問/相談系ならNotionデータを参照してGemini回答を返す。
+    メッセージを受け取り、Geminiでintent分類→
+    保存系ならNotionに保存、today/upcoming/thinkは該当機能を呼び出し、
+    unknownならNotionデータを参照してGemini回答を返す。
     画像が添付されている場合はGeminiのマルチモーダルで処理。
     """
     text = req.message.strip()
-    intent = _classify_intent(text)
 
-    # --- 保存系 intent ---
-    if intent == "memo":
-        props = {**_title_prop(text[:50])}
-        props.update(_rich_text_prop("内容", text))
-        _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
-        return {"intent": "memo", "message": f"メモを保存しました: {text[:50]}", "saved": True}
-
-    if intent == "idea":
-        props = {**_title_prop(text[:50])}
-        props.update(_rich_text_prop("内容", text))
-        _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
-        return {"intent": "idea", "message": f"アイデアを保存しました: {text[:50]}", "saved": True}
-
-    if intent == "schedule":
-        date_match = re.search(r"\d{4}-\d{2}-\d{2}", text)
-        d = date_match.group() if date_match else date.today().isoformat()
-        props = {**_title_prop(text[:50]), **_date_prop("日付", d)}
-        _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
-        return {"intent": "schedule", "message": f"予定を保存しました: {text[:50]} ({d})", "saved": True}
-
-    # --- 質問/相談系 intent ---
     if not GEMINI_API_KEY:
         return {
-            "intent": "answer",
+            "intent": "unknown",
             "message": "APIキーが未設定です（GEMINI_API_KEY を設定してください）",
             "saved": False,
         }
 
-    today_data = _fetch_today()
-    upcoming_data = _fetch_upcoming(7)
+    # --- Geminiでintent分類 ---
+    classified = _classify_intent_via_gemini(text)
+    intent = classified.get("intent", "unknown")
+
+    # --- memo ---
+    if intent == "memo":
+        title = classified.get("title", text[:20])
+        content = classified.get("content", text)
+        props = {**_title_prop(title)}
+        props.update(_rich_text_prop("内容", content))
+        try:
+            _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
+            return {"intent": "memo", "message": f"メモを保存しました: {title}", "saved": True}
+        except Exception:
+            return {"intent": "memo", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+
+    # --- idea ---
+    if intent == "idea":
+        title = classified.get("title", text[:20])
+        content = classified.get("content", text)
+        props = {**_title_prop(title)}
+        props.update(_rich_text_prop("内容", content))
+        try:
+            _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
+            return {"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True}
+        except Exception:
+            return {"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+
+    # --- schedule ---
+    if intent == "schedule":
+        title = classified.get("title", text[:20])
+        d = classified.get("date", date.today().isoformat())
+        memo = classified.get("memo", "")
+        props = {**_title_prop(title), **_date_prop("日付", d)}
+        if memo:
+            props.update(_rich_text_prop("メモ", memo))
+        try:
+            _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
+            return {"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True}
+        except Exception:
+            return {"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+
+    # --- today ---
+    if intent == "today":
+        try:
+            data = _fetch_today()
+            lines = [f"今日（{data['date']}）:"]
+            for s in data.get("schedules", []):
+                lines.append(f"・予定: {s['title']}")
+            for t in data.get("tasks", []):
+                lines.append(f"・タスク: {t['title']}（{t['status']}）")
+            if len(lines) == 1:
+                lines.append("今日の予定・タスクはまだない。")
+            return {"intent": "today", "message": "\n".join(lines), "saved": False}
+        except Exception:
+            return {"intent": "today", "message": "Notionからデータを取得できなかった。", "saved": False}
+
+    # --- upcoming ---
+    if intent == "upcoming":
+        try:
+            data = _fetch_upcoming(7)
+            lines = [f"今週（{data['range']}）:"]
+            for s in data.get("schedules", []):
+                lines.append(f"・{s.get('date', '')}: {s['title']}")
+            for t in data.get("tasks", []):
+                lines.append(f"・{t.get('date', '')}: {t['title']}（{t['status']}）")
+            if len(lines) == 1:
+                lines.append("今週の予定・タスクはまだない。")
+            return {"intent": "upcoming", "message": "\n".join(lines), "saved": False}
+        except Exception:
+            return {"intent": "upcoming", "message": "Notionからデータを取得できなかった。", "saved": False}
+
+    # --- think ---
+    if intent == "think":
+        result = think()
+        return {"intent": "think", "message": result.get("message", ""), "saved": False}
+
+    # --- unknown: Notionデータ参照してGemini回答 ---
+    try:
+        today_data = _fetch_today()
+        upcoming_data = _fetch_upcoming(7)
+    except Exception:
+        today_data = {"date": date.today().isoformat(), "schedules": [], "tasks": []}
+        upcoming_data = {"range": "", "schedules": [], "tasks": []}
 
     context = (
         f"## 今日（{today_data['date']}）\n"
         f"予定: {json.dumps(today_data['schedules'], ensure_ascii=False)}\n"
         f"タスク: {json.dumps(today_data['tasks'], ensure_ascii=False)}\n\n"
-        f"## 今週（{upcoming_data['range']}）\n"
+        f"## 今週（{upcoming_data.get('range', '')}）\n"
         f"予定: {json.dumps(upcoming_data['schedules'], ensure_ascii=False)}\n"
         f"タスク: {json.dumps(upcoming_data['tasks'], ensure_ascii=False)}"
     )
