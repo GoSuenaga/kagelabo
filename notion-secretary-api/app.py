@@ -48,16 +48,18 @@ DB = {
     "Ideas":    os.environ.get("NOTION_DB_IDEAS",     "327c70f7-0203-8059-9f60-c51d25e45bf4"),
     "Memos":    os.environ.get("NOTION_DB_MEMOS",     "327c70f7-0203-806c-b2c6-fddc6be00a68"),
     "Profile":  os.environ.get("NOTION_DB_PROFILE",   "32bc70f7-0203-81d9-8ecf-e00a9f17562f"),
+    "ChatLog":  os.environ.get("NOTION_DB_CHATLOG",  "32bc70f7-0203-8178-bbf0-caf5888cba22"),
 }
 
 BASE = "https://api.notion.com/v1"
 
 # ---------------------------------------------------------------------------
-# 会話記憶（インメモリ セッション管理）
+# 会話記憶（インメモリ + Notion永続化）
 # ---------------------------------------------------------------------------
 CONVERSATIONS: dict = {}
 MAX_HISTORY = 20
 SESSION_TTL = 86400  # 24h
+SAVE_INTERVAL = 4  # N発言ごとにNotionに保存
 
 
 def _get_session(session_id: Optional[str]) -> tuple:
@@ -69,17 +71,24 @@ def _get_session(session_id: Optional[str]) -> tuple:
         CONVERSATIONS[session_id]["ts"] = now
         return session_id, CONVERSATIONS[session_id]["msgs"]
     sid = session_id or str(uuid.uuid4())
-    CONVERSATIONS[sid] = {"msgs": [], "ts": now}
-    return sid, CONVERSATIONS[sid]["msgs"]
+    if session_id:
+        msgs = _load_session_from_notion(session_id)
+    else:
+        msgs = []
+    CONVERSATIONS[sid] = {"msgs": msgs, "ts": now, "count": 0, "page_id": None}
+    return sid, msgs
 
 
 def _add_to_session(sid: str, role: str, content: str):
     if sid not in CONVERSATIONS:
         return
-    msgs = CONVERSATIONS[sid]["msgs"]
-    msgs.append({"role": role, "content": content})
-    if len(msgs) > MAX_HISTORY * 2:
-        msgs[:] = msgs[-MAX_HISTORY:]
+    sess = CONVERSATIONS[sid]
+    sess["msgs"].append({"role": role, "content": content})
+    if len(sess["msgs"]) > MAX_HISTORY * 2:
+        sess["msgs"] = sess["msgs"][-MAX_HISTORY:]
+    sess["count"] = sess.get("count", 0) + 1
+    if sess["count"] % SAVE_INTERVAL == 0:
+        threading.Thread(target=_persist_session_bg, args=(sid,), daemon=True).start()
 
 
 def _build_history_text(sid: str) -> str:
@@ -93,6 +102,68 @@ def _build_history_text(sid: str) -> str:
         prefix = "ボス" if m["role"] == "user" else "影"
         lines.append(f"{prefix}: {m['content'][:200]}")
     return "\n".join(lines)
+
+
+def _load_session_from_notion(session_id: str) -> list:
+    """Notion ChatLog DBからセッションを復元"""
+    try:
+        data = _notion_post(f"/databases/{DB['ChatLog']}/query", {
+            "filter": {"property": "セッションID", "rich_text": {"equals": session_id}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            "page_size": 1,
+        })
+        results = data.get("results", [])
+        if not results:
+            return []
+        content_rt = results[0]["properties"].get("内容", {}).get("rich_text", [])
+        if not content_rt:
+            return []
+        raw = content_rt[0]["plain_text"]
+        msgs = json.loads(raw)
+        logger.info("[session] Restored %d messages for %s from Notion", len(msgs), session_id)
+        return msgs if isinstance(msgs, list) else []
+    except Exception as e:
+        logger.error("[session] Failed to load from Notion: %s", e)
+        return []
+
+
+def _persist_session_bg(sid: str):
+    """バックグラウンドで会話ログをNotionに保存/更新"""
+    try:
+        sess = CONVERSATIONS.get(sid)
+        if not sess or not sess["msgs"]:
+            return
+        recent = sess["msgs"][-MAX_HISTORY:]
+        compact = json.dumps(recent, ensure_ascii=False)
+        if len(compact) > 1900:
+            while len(compact) > 1900 and recent:
+                recent = recent[1:]
+                compact = json.dumps(recent, ensure_ascii=False)
+
+        today_str = date.today().isoformat()
+        first_msg = recent[0]["content"][:30] if recent else ""
+        title = f"{today_str} {first_msg}"
+
+        if sess.get("page_id"):
+            _notion_patch(f"/pages/{sess['page_id']}", {
+                "properties": {
+                    **_title_prop(title),
+                    **_rich_text_prop("内容", compact),
+                    **_date_prop("日付", today_str),
+                }
+            })
+        else:
+            props = {
+                **_title_prop(title),
+                **_rich_text_prop("セッションID", sid),
+                **_rich_text_prop("内容", compact),
+                **_date_prop("日付", today_str),
+            }
+            result = _notion_post("/pages", {"parent": {"database_id": DB["ChatLog"]}, "properties": props})
+            sess["page_id"] = result.get("id")
+        logger.info("[session] Persisted %d messages for %s", len(recent), sid)
+    except Exception as e:
+        logger.error("[session] Persist failed: %s", e)
 
 
 _profile_path = Path(__file__).parent / "boss_profile.md"
@@ -258,7 +329,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23d",
+        "version": "2026-03-23e",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,

@@ -180,13 +180,26 @@ function renderThinkResult(text) {
 // ── Send ──────────────────────────────────────────
 async function handleSend() {
   const text = msgInput.value.trim();
-  if (!text) return;
-  addUser(text);
+  if (!text && !pendingImage) return;
+  const displayText = text || '(画像を送信)';
+  addUser(displayText);
+  if (pendingImage) {
+    const thumb = document.createElement('img');
+    thumb.src = previewImg.src;
+    thumb.style.cssText = 'max-height:80px;border-radius:6px;margin-top:4px;display:block';
+    chatArea.lastElementChild.querySelector('.bubble').appendChild(thumb);
+  }
   msgInput.value = ''; autoResize();
   showTyping();
   try {
-    const body = {message: text};
+    const body = {message: text || 'この画像について教えて'};
     if (sessionId) body.session_id = sessionId;
+    if (pendingImage) {
+      body.image = pendingImage;
+      body.mime_type = pendingMime || 'image/jpeg';
+    }
+    pendingImage = null; pendingMime = null;
+    imagePreview.classList.add('hidden'); previewImg.src = '';
     const data = await post('/chat', body);
     if (data.session_id) {
       sessionId = data.session_id;
@@ -384,6 +397,84 @@ btnReload.addEventListener('click', () => {
   btnReload.classList.add('spinning');
   setTimeout(() => location.reload(), 300);
 });
+
+// ── Image input ───────────────────────────────────
+const btnImage    = document.getElementById('btnImage');
+const imageInput  = document.getElementById('imageInput');
+const imagePreview = document.getElementById('imagePreview');
+const previewImg  = document.getElementById('previewImg');
+const removeImage = document.getElementById('removeImage');
+
+let pendingImage = null;
+let pendingMime  = null;
+
+btnImage.addEventListener('click', () => imageInput.click());
+
+imageInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  pendingMime = file.type || 'image/jpeg';
+  const reader = new FileReader();
+  reader.onload = () => {
+    const base64 = reader.result.split(',')[1];
+    pendingImage = base64;
+    previewImg.src = reader.result;
+    imagePreview.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+  imageInput.value = '';
+});
+
+removeImage.addEventListener('click', () => {
+  pendingImage = null;
+  pendingMime = null;
+  imagePreview.classList.add('hidden');
+  previewImg.src = '';
+});
+
+// ── Voice input (Web Speech API) ──────────────────
+const btnMic = document.getElementById('btnMic');
+let recognition = null;
+let isRecording = false;
+
+if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SpeechRecognition();
+  recognition.lang = 'ja-JP';
+  recognition.interimResults = true;
+  recognition.continuous = false;
+
+  recognition.onresult = (e) => {
+    let transcript = '';
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      transcript += e.results[i][0].transcript;
+    }
+    msgInput.value = transcript;
+    autoResize();
+  };
+
+  recognition.onend = () => {
+    isRecording = false;
+    btnMic.classList.remove('recording');
+  };
+
+  recognition.onerror = () => {
+    isRecording = false;
+    btnMic.classList.remove('recording');
+  };
+
+  btnMic.addEventListener('click', () => {
+    if (isRecording) {
+      recognition.stop();
+    } else {
+      isRecording = true;
+      btnMic.classList.add('recording');
+      recognition.start();
+    }
+  });
+} else {
+  btnMic.style.display = 'none';
+}
 
 // ── Input resize ──────────────────────────────────
 function autoResize() {
