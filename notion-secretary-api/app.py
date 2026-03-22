@@ -353,6 +353,24 @@ MORNING_SYSTEM_PROMPT = f"""\
 （ボスの状況を踏まえた短い一言。天気・体調への気遣いなど）\
 """
 
+OPENING_LINE_SYSTEM_PROMPT = f"""\
+あなたはGo_KAGE — ボス専属のAI秘書「影」。
+
+{BOSS_PROFILE}
+
+役割: アプリを開いた直後に表示する「ひと言」だけを書く。
+直前の画面で日付・時刻と「おはよう／お疲れ様」挨拶は既に出ているので、それらの繰り返しはしない。
+
+絶対ルール:
+- 「〜しろ」「〜やれ」等の命令口調は禁止
+- 丁寧で短い。1〜2文、合計140文字以内
+- 「ボス」は使わないか、文末に一度だけ
+- 渡されたNotionデータ（プロフィール・メモ・予定・タスク）に書かれている事実だけを使う。ない内容を捏造しない
+- プロフィールやメモから、ボスと影だけがわかるようなさりげない言及を1つ入れてよい（無理に入れない）
+- 今日の予定・タスク・締切がデータにあればさりげなく触れてよい（なくてもよい）
+- 心を和らげる、落ち着いたトーン。前置き・箇条書き・見出し・改行は禁止。本文のみ1ブロックで出力\
+"""
+
 app = FastAPI(title="Notion Secretary API", version="1.0.0")
 
 # CORS
@@ -462,7 +480,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23m",
+        "version": "2026-03-23n",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -1260,6 +1278,66 @@ def morning():
         answer = "ボス、おはようございます。本日のブリーフィングを生成できませんでした。"
 
     return {"message": answer}
+
+
+# ---------------------------------------------------------------------------
+# GET /opening — 起動時のひと言（日時はフロント表示用。ここはパーソナルな一言のみ）
+# ---------------------------------------------------------------------------
+
+def _brain_slice_for_opening(brain: dict) -> dict:
+    """トークン節約のため opening 用に間引き"""
+    prof = brain.get("profile") or []
+    return {
+        "profile": prof[:35],
+        "memos": (brain.get("memos") or [])[:6],
+        "ideas": (brain.get("ideas") or [])[:4],
+        "tasks": (brain.get("tasks") or [])[:10],
+        "schedule": (brain.get("schedule") or [])[:10],
+    }
+
+
+@app.get("/opening")
+def opening_line():
+    """起動直後: Notionを踏まえた心を和らげる一言（日付・時刻は含めない）"""
+    if not GEMINI_API_KEY:
+        return {"line": "本日も無理せず、よろしくお願いいたします。"}
+
+    try:
+        brain = _fetch_brain()
+    except Exception:
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+
+    slim = _brain_slice_for_opening(brain)
+    clock = _now_clock_block()
+    payload = (
+        f"{clock}\n"
+        "（上の実日時は参考。あなたの返答本文に日付や時刻を書かないこと。）\n\n"
+        f"Notionデータ（JSON）:\n{json.dumps(slim, ensure_ascii=False)}"
+    )
+
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(gemini_url, json={
+            "system_instruction": {"parts": [{"text": OPENING_LINE_SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": payload}]}],
+            "generationConfig": {
+                "temperature": 0.85,
+                "maxOutputTokens": 220,
+            },
+        }, timeout=20)
+        resp.raise_for_status()
+        line = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
+        line = " ".join(line.split())  # 改行を潰す
+        if len(line) > 280:
+            line = line[:277] + "…"
+    except Exception as e:
+        logger.error("[opening] Gemini failed: %s", e)
+        line = "本日もよろしくお願いいたします。無理のないペースでまいりましょう。"
+
+    return {"line": line}
 
 
 # ---------------------------------------------------------------------------

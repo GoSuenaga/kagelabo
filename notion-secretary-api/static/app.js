@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.8';
+const VERSION = 'v0.9';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -40,6 +40,17 @@ function esc(s) {
 function fmtDateHeader() {
   const d = new Date();
   return d.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
+}
+/** ウェルカム用: 端末ロケールの「今日」と現在時刻（秘書の第一声用） */
+function fmtWelcomeClock() {
+  const d = new Date();
+  const dateStr = d.toLocaleDateString('ja-JP', {
+    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
+  });
+  const timeStr = d.toLocaleTimeString('ja-JP', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+  });
+  return { dateStr, timeStr };
 }
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function fmtDate(s) {
@@ -91,8 +102,14 @@ function hideTyping() { typingEl && (typingEl.remove(), typingEl = null); }
 function showWelcome() {
   const h = new Date().getHours();
   const g = h < 12 ? 'おはようございます' : h < 18 ? 'お疲れ様です' : 'お疲れ様です';
+  const { dateStr, timeStr } = fmtWelcomeClock();
   addMsg('kage', `
     <div class="welcome">
+      <div class="welcome-clock" aria-label="今日の日付と現在時刻">
+        <div class="wc-label">本日</div>
+        <div class="wc-date">${esc(dateStr)}</div>
+        <div class="wc-time">${esc(timeStr)}</div>
+      </div>
       <strong>${g}、ボス。</strong><br>
       影がNotionの管理をサポートいたします。<br><br>
       📝 メモ・💡 アイデア → 保存<br>
@@ -570,6 +587,21 @@ document.getElementById('btnCopyLog').addEventListener('click', () => {
   });
 });
 
+// ── Opening line（起動時・Notionを踏まえたひと言） ──
+async function showOpeningLine() {
+  showTyping();
+  try {
+    const data = await get('/opening');
+    hideTyping();
+    if (data.line) {
+      addMsg('kage', `<div class="opening-line"><span class="opening-kicker">影</span>${esc(data.line)}</div>`);
+    }
+  } catch (e) {
+    hideTyping();
+    addMsg('kage', '<div class="opening-line"><span class="opening-kicker">影</span>本日もよろしくお願いいたします。</div>');
+  }
+}
+
 // ── Morning briefing ──────────────────────────────
 async function showMorningBriefing() {
   const today = todayStr();
@@ -606,6 +638,9 @@ async function showMorningBriefing() {
 }
 
 // ── Init ──────────────────────────────────────────
-if (headerDate) headerDate.textContent = fmtDateHeader();
-showWelcome();
-showMorningBriefing();
+(async function bootKage() {
+  if (headerDate) headerDate.textContent = fmtDateHeader();
+  showWelcome();
+  await showOpeningLine();
+  await showMorningBriefing();
+})();
