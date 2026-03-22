@@ -10,6 +10,7 @@ import re
 import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -52,6 +53,52 @@ DB = {
 }
 
 BASE = "https://api.notion.com/v1"
+
+# ---------------------------------------------------------------------------
+# Profile キャッシュ（起動時に1回読み込み、更新時に再読込）
+# ---------------------------------------------------------------------------
+_profile_cache: dict = {"data": [], "ts": 0}
+PROFILE_CACHE_TTL = 300  # 5分
+
+
+def _fetch_profile_cached() -> list:
+    """Profile DBをキャッシュ付きで取得。ページネーション対応"""
+    now = time.time()
+    if _profile_cache["data"] and (now - _profile_cache["ts"]) < PROFILE_CACHE_TTL:
+        return _profile_cache["data"]
+
+    profile = []
+    has_more = True
+    start_cursor = None
+    while has_more:
+        body: dict = {
+            "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
+            "page_size": 100,
+        }
+        if start_cursor:
+            body["start_cursor"] = start_cursor
+        data = _notion_post(f"/databases/{DB['Profile']}/query", body)
+        for row in data.get("results", []):
+            title = row["properties"]["名前"]["title"]
+            name = title[0]["plain_text"] if title else "(無題)"
+            cat_prop = row["properties"].get("カテゴリ", {}).get("select")
+            category = cat_prop["name"] if cat_prop else ""
+            content_rt = row["properties"].get("内容", {}).get("rich_text", [])
+            content = content_rt[0]["plain_text"] if content_rt else ""
+            profile.append({"category": category, "title": name, "content": content})
+        has_more = data.get("has_more", False)
+        start_cursor = data.get("next_cursor")
+
+    _profile_cache["data"] = profile
+    _profile_cache["ts"] = now
+    logger.info("[cache] Profile loaded: %d entries", len(profile))
+    return profile
+
+
+def _invalidate_profile_cache():
+    """Profile DBに書き込んだ後にキャッシュを無効化"""
+    _profile_cache["ts"] = 0
+
 
 # ---------------------------------------------------------------------------
 # 会話記憶（インメモリ + Notion永続化）
@@ -329,7 +376,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23f",
+        "version": "2026-03-23g",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -537,6 +584,7 @@ def _auto_learn_bg(text: str):
             props.update(_rich_text_prop("内容", fact.get("content", "")))
             props["カテゴリ"] = {"select": {"name": fact.get("category", "その他")}}
             _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
+            _invalidate_profile_cache()
             logger.info("[auto_learn] Saved: %s → %s", fact["title"], fact.get("content", ""))
     except Exception as e:
         logger.error("[auto_learn] Failed: %s", e)
@@ -661,100 +709,100 @@ def get_upcoming(days: int = 7):
 # ---------------------------------------------------------------------------
 
 def _fetch_brain() -> dict:
-    """Notionの主要DBからデータを一括取得"""
+    """Notionの主要DBからデータを並列取得（Profile はキャッシュ利用）"""
     today_str = date.today().isoformat()
     end_str = (date.today() + timedelta(days=30)).isoformat()
+    t0 = time.time()
 
-    # Memos: 直近20件
-    try:
-        memos_data = _notion_post(f"/databases/{DB['Memos']}/query", {
+    def _q_memos():
+        data = _notion_post(f"/databases/{DB['Memos']}/query", {
             "sorts": [{"timestamp": "created_time", "direction": "descending"}],
             "page_size": 20,
         })
-        memos = []
-        for row in memos_data.get("results", []):
+        result = []
+        for row in data.get("results", []):
             title = row["properties"]["名前"]["title"]
             name = title[0]["plain_text"] if title else "(無題)"
             content_rt = row["properties"].get("内容", {}).get("rich_text", [])
             content = content_rt[0]["plain_text"] if content_rt else ""
-            memos.append({"title": name, "content": content})
-    except Exception:
-        memos = []
+            result.append({"title": name, "content": content})
+        return result
 
-    # Tasks: 直近20件
-    try:
-        tasks_data = _notion_post(f"/databases/{DB['Tasks']}/query", {
+    def _q_tasks():
+        data = _notion_post(f"/databases/{DB['Tasks']}/query", {
             "sorts": [{"timestamp": "created_time", "direction": "descending"}],
             "page_size": 20,
         })
-        tasks = []
-        for row in tasks_data.get("results", []):
+        result = []
+        for row in data.get("results", []):
             title = row["properties"]["名前"]["title"]
             name = title[0]["plain_text"] if title else "(無題)"
             date_prop = row["properties"].get("日付", {}).get("date", {})
             d = date_prop.get("start", "") if date_prop else ""
             status_prop = row["properties"].get("ステータス", {}).get("select")
             status = status_prop["name"] if status_prop else "未設定"
-            tasks.append({"title": name, "date": d, "status": status})
-    except Exception:
-        tasks = []
+            result.append({"title": name, "date": d, "status": status})
+        return result
 
-    # Ideas: 直近10件
-    try:
-        ideas_data = _notion_post(f"/databases/{DB['Ideas']}/query", {
+    def _q_ideas():
+        data = _notion_post(f"/databases/{DB['Ideas']}/query", {
             "sorts": [{"timestamp": "created_time", "direction": "descending"}],
             "page_size": 10,
         })
-        ideas = []
-        for row in ideas_data.get("results", []):
+        result = []
+        for row in data.get("results", []):
             title = row["properties"]["名前"]["title"]
             name = title[0]["plain_text"] if title else "(無題)"
             content_rt = row["properties"].get("内容", {}).get("rich_text", [])
             content = content_rt[0]["plain_text"] if content_rt else ""
-            ideas.append({"title": name, "content": content})
-    except Exception:
-        ideas = []
+            result.append({"title": name, "content": content})
+        return result
 
-    # Schedule: 直近30日
-    try:
-        schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
+    def _q_schedule():
+        data = _notion_post(f"/databases/{DB['Schedule']}/query", {
             "filter": {"and": [
                 {"property": "日付", "date": {"on_or_after": today_str}},
                 {"property": "日付", "date": {"on_or_before": end_str}},
             ]},
             "sorts": [{"property": "日付", "direction": "ascending"}],
         })
-        schedule = []
-        for row in schedule_data.get("results", []):
+        result = []
+        for row in data.get("results", []):
             title = row["properties"]["名前"]["title"]
             name = title[0]["plain_text"] if title else "(無題)"
             date_prop = row["properties"].get("日付", {}).get("date", {})
             d = date_prop.get("start", "") if date_prop else ""
             memo_rt = row["properties"].get("メモ", {}).get("rich_text", [])
             memo = memo_rt[0]["plain_text"] if memo_rt else ""
-            schedule.append({"title": name, "date": d, "memo": memo})
-    except Exception:
-        schedule = []
+            result.append({"title": name, "date": d, "memo": memo})
+        return result
 
-    # Profile: 全件取得
+    brain = {"memos": [], "tasks": [], "ideas": [], "schedule": [], "profile": []}
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        futures = {
+            pool.submit(_q_memos): "memos",
+            pool.submit(_q_tasks): "tasks",
+            pool.submit(_q_ideas): "ideas",
+            pool.submit(_q_schedule): "schedule",
+        }
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                brain[key] = fut.result()
+            except Exception:
+                brain[key] = []
+
     try:
-        profile_data = _notion_post(f"/databases/{DB['Profile']}/query", {
-            "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
-            "page_size": 100,
-        })
-        profile = []
-        for row in profile_data.get("results", []):
-            title = row["properties"]["名前"]["title"]
-            name = title[0]["plain_text"] if title else "(無題)"
-            cat_prop = row["properties"].get("カテゴリ", {}).get("select")
-            category = cat_prop["name"] if cat_prop else ""
-            content_rt = row["properties"].get("内容", {}).get("rich_text", [])
-            content = content_rt[0]["plain_text"] if content_rt else ""
-            profile.append({"category": category, "title": name, "content": content})
+        brain["profile"] = _fetch_profile_cached()
     except Exception:
-        profile = []
+        brain["profile"] = []
 
-    return {"memos": memos, "tasks": tasks, "ideas": ideas, "schedule": schedule, "profile": profile}
+    elapsed = int((time.time() - t0) * 1000)
+    logger.info("[brain] fetched in %dms (memos=%d tasks=%d ideas=%d sched=%d profile=%d)",
+                elapsed, len(brain["memos"]), len(brain["tasks"]),
+                len(brain["ideas"]), len(brain["schedule"]), len(brain["profile"]))
+    return brain
 
 
 @app.get("/brain")
@@ -914,9 +962,10 @@ def chat(req: ChatRequest):
         props["カテゴリ"] = {"select": {"name": category}}
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
-            return _respond({"intent": "profile", "message": f"ボス、覚えました: {title}", "saved": True})
+            _invalidate_profile_cache()
+            return _respond({"intent": "profile", "message": f"覚えました: {title}", "saved": True})
         except Exception:
-            return _respond({"intent": "profile", "message": f"ボス、保存に失敗しました: {title}", "saved": False})
+            return _respond({"intent": "profile", "message": f"保存に失敗しました: {title}", "saved": False})
 
     # --- today ---
     if intent == "today":
