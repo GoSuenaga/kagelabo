@@ -376,7 +376,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23g",
+        "version": "2026-03-23h",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -520,16 +520,18 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 分類カテゴリ:
 - memo: 買い物・覚えておくこと・TODO・短いメモ
 - idea: アイデア・企画・思いついたこと
-- schedule: 締切・日付・予定・〜までに
-- profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」が含まれるか、「俺の〇〇は△△」のように新情報を伝えている場合
-- today: 今日・今日の予定
-- upcoming: 今後・来週・スケジュール確認
+- schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
+- profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」＋新情報
+- today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
+- upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
 - think: 整理して・優先順位・何から・頭の中
-- answer: 質問・相談・依頼・まとめて・教えて・〜してください。既存の情報を使って何かを頼む場合はすべてanswer
+- answer: それ以外すべて。質問・相談・依頼・報告・長文の情報共有。迷ったらanswer
 
 重要な判定ルール:
-- 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer（依頼・質問）
-- 「覚えて」「覚えといて」＋新情報 → profile（保存）
+- 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer
+- 「覚えて」「覚えといて」＋新情報 → profile
+- ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
+- today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
 - 迷ったらanswerにする
 
 Few-shot例:
@@ -539,10 +541,13 @@ Few-shot例:
 "覚えて: パーソル研修は毎月第2火曜" → {{"intent":"profile","title":"パーソル研修","content":"毎月第2火曜","date":"","category":"プロジェクト"}}
 "俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
+"今日の予定は？" → {{"intent":"today","title":"","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
 "経歴を300文字でまとめて" → {{"intent":"answer","title":"","content":"","date":""}}
 "俺の好きな食べ物知ってる？" → {{"intent":"answer","title":"","content":"","date":""}}
 "自己紹介文を作ってください" → {{"intent":"answer","title":"","content":"","date":""}}
+"今日の予定です。15:00から定例、16:00からVision Play" → {{"intent":"answer","title":"","content":"","date":""}}
+"今週こんな感じで動いてる。月曜はCAの定例、水曜はデジハリ" → {{"intent":"answer","title":"","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
@@ -620,9 +625,9 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "idea", "title": message, "content": "", "date": ""}
     elif any(k in text for k in ["予定", "締切", "まで", "schedule", "金曜", "月曜", "来週"]):
         return {"intent": "schedule", "title": message, "date": "", "content": ""}
-    elif any(k in text for k in ["今日", "today"]):
+    elif len(text) < 20 and any(k in text for k in ["今日", "today"]):
         return {"intent": "today", "title": "", "content": "", "date": ""}
-    elif any(k in text for k in ["今後", "今週", "upcoming"]):
+    elif len(text) < 20 and any(k in text for k in ["今後", "今週", "upcoming"]):
         return {"intent": "upcoming", "title": "", "content": "", "date": ""}
     elif any(k in text for k in ["整理", "優先", "何から", "頭の中"]):
         return {"intent": "think", "title": "", "content": "", "date": ""}
