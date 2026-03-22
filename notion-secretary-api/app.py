@@ -4,6 +4,7 @@ Gensparkなど外部チャットから呼び出してNotionに自動保存する
 """
 
 import json
+import logging
 import os
 import re
 from datetime import date, timedelta
@@ -17,16 +18,19 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # ---------------------------------------------------------------------------
 # 設定
 # ---------------------------------------------------------------------------
 API_KEY = os.environ.get("NOTION_API_KEY", "")
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 
 AVAILABLE_MODELS = [
-    {"id": "gemini-2.0-flash",             "label": "Flash 2.0（速い・無料枠大）"},
-    {"id": "gemini-2.5-pro-preview-03-25", "label": "Pro 2.5（賢い・プレビュー版）"},
+    {"id": "gemini-2.5-flash",             "label": "Flash 2.5（速い・無料枠大）"},
+    {"id": "gemini-2.5-pro",               "label": "Pro 2.5（賢い）"},
 ]
 
 HEADERS = {
@@ -326,13 +330,27 @@ def _classify_intent_via_gemini(text: str) -> dict:
         }, timeout=15)
         resp.raise_for_status()
         raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-        # JSON部分を抽出（```json ... ``` やテキスト混入対策）
-        raw = raw.strip()
-        if raw.startswith("```"):
-            raw = re.sub(r"^```\w*\n?", "", raw)
-            raw = re.sub(r"\n?```$", "", raw)
-        return json.loads(raw.strip())
-    except Exception:
+        logger.info("[classify] Gemini raw response: %s", raw)
+    except Exception as e:
+        logger.error("[classify] Gemini API request failed: %s", e)
+        return {"intent": "unknown"}
+
+    try:
+        cleaned = raw.strip()
+        if cleaned.startswith("```"):
+            cleaned = re.sub(r"^```\w*\n?", "", cleaned)
+            cleaned = re.sub(r"\n?```$", "", cleaned)
+            cleaned = cleaned.strip()
+        # JSON objectを正規表現で抽出（前後に余計なテキストがある場合の対策）
+        if not cleaned.startswith("{"):
+            m = re.search(r"\{.*\}", cleaned, re.DOTALL)
+            if m:
+                cleaned = m.group(0)
+        result = json.loads(cleaned)
+        logger.info("[classify] Parsed intent: %s", result)
+        return result
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error("[classify] JSON parse failed: %s | cleaned text: %s", e, cleaned)
         return {"intent": "unknown"}
 
 
@@ -521,6 +539,12 @@ def chat(req: ChatRequest):
     # --- Geminiでintent分類 ---
     classified = _classify_intent_via_gemini(text)
     intent = classified.get("intent", "unknown")
+    logger.info("[chat] input=%s | classified=%s", text, classified)
+
+    KNOWN_INTENTS = {"memo", "idea", "schedule", "today", "upcoming", "think", "unknown"}
+    if intent not in KNOWN_INTENTS:
+        logger.warning("[chat] Unexpected intent '%s' — treating as unknown. full=%s", intent, classified)
+        intent = "unknown"
 
     # --- memo ---
     if intent == "memo":
