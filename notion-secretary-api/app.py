@@ -410,7 +410,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23k",
+        "version": "2026-03-23l",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -559,12 +559,12 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
 - upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
-- debug: バグ報告。「バグ:」「不具合:」「おかしい」で始まるもの
+- debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
 - think: 整理して・優先順位・何から・頭の中
 - answer: それ以外すべて。質問・相談・依頼・報告・長文の情報共有。迷ったらanswer
 
 重要な判定ルール:
-- 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer
+- 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer（ただし文頭が「バグ:」「不具合:」なら例外でdebug）
 - 「覚えて」「覚えといて」＋新情報 → profile
 - 「もうやった」「終わった」「いらない」「消して」＋対象アイテム → done（titleに対象を入れる）
 - ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
@@ -588,6 +588,8 @@ Few-shot例:
 "洗剤もう買ったよ" → {{"intent":"done","title":"洗剤","content":"","date":""}}
 "シチューはもう食べた" → {{"intent":"done","title":"シチュー","content":"","date":""}}
 "RAG動画の修正終わった" → {{"intent":"done","title":"RAG動画修正","content":"","date":""}}
+"バグ: 起動画面に日付と時刻を表示してほしい" → {{"intent":"debug","title":"バグ: 起動画面に日付と時刻を表示してほしい","content":"","date":""}}
+"不具合: 送信ボタンが効かない" → {{"intent":"debug","title":"不具合: 送信ボタンが効かない","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
@@ -679,8 +681,22 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "answer", "title": "", "content": "", "date": ""}
 
 
+def _explicit_debug_intent(message: str) -> Optional[dict]:
+    """文頭がバグ報告プレフィックスなら分類を固定（Geminiが依頼文でanswerに誤分類するのを防ぐ）"""
+    s = message.strip()
+    prefixes = ("バグ:", "バグ：", "不具合:", "不具合：", "bug:", "BUG:")
+    for p in prefixes:
+        if s.lower().startswith(p.lower()):
+            return {"intent": "debug", "title": message, "content": "", "date": ""}
+    return None
+
+
 def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> dict:
     """Gemini APIでintentを分類。会話履歴があれば文脈も考慮する"""
+    forced = _explicit_debug_intent(text)
+    if forced:
+        return forced
+
     today_str = date.today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
 
@@ -948,7 +964,7 @@ def chat(req: ChatRequest):
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
-    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "done", "today", "upcoming", "think", "answer", "unknown"}
+    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "done", "debug", "today", "upcoming", "think", "answer", "unknown"}
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
         intent = "answer"
@@ -959,7 +975,7 @@ def chat(req: ChatRequest):
         msg = resp.get("message", "")
         if msg:
             _add_to_session(sid, "assistant", msg)
-        if intent not in ("profile",) and GEMINI_API_KEY:
+        if intent not in ("profile", "debug") and GEMINI_API_KEY:
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
         return resp
 
@@ -1038,7 +1054,7 @@ def chat(req: ChatRequest):
     if intent == "debug":
         try:
             report_text = text
-            for prefix in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:"]:
+            for prefix in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:", "BUG:"]:
                 if report_text.lower().startswith(prefix.lower()):
                     report_text = report_text[len(prefix):].strip()
                     break
