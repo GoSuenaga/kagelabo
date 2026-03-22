@@ -8,7 +8,6 @@ import os
 import re
 from datetime import date, timedelta
 
-import anthropic
 import requests
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
@@ -17,7 +16,13 @@ from pydantic import BaseModel
 # 設定
 # ---------------------------------------------------------------------------
 API_KEY = os.environ.get("NOTION_API_KEY", "")
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.0-flash")
+
+AVAILABLE_MODELS = [
+    {"id": "gemini-2.0-flash",             "label": "Flash 2.0（速い・無料枠大）"},
+    {"id": "gemini-2.5-pro-preview-03-25", "label": "Pro 2.5（賢い・プレビュー版）"},
+]
 
 HEADERS = {
     "Authorization": f"Bearer {API_KEY}",
@@ -107,7 +112,29 @@ def root():
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "notion_api_key_set": bool(API_KEY)}
+    return {
+        "status": "ok",
+        "notion_api_key_set": bool(API_KEY),
+        "gemini_api_key_set": bool(GEMINI_API_KEY),
+        "current_model": GEMINI_MODEL,
+    }
+
+
+@app.get("/models")
+def get_models():
+    """選択可能なモデル一覧と現在のモデルを返す"""
+    return {"current": GEMINI_MODEL, "models": AVAILABLE_MODELS}
+
+
+@app.post("/models/{model_id}")
+def set_model(model_id: str):
+    """モデルを切り替える"""
+    global GEMINI_MODEL
+    valid_ids = [m["id"] for m in AVAILABLE_MODELS]
+    if model_id not in valid_ids:
+        raise HTTPException(status_code=400, detail=f"無効なモデル: {model_id}。選択肢: {valid_ids}")
+    GEMINI_MODEL = model_id
+    return {"message": f"モデルを {model_id} に切り替えました", "current": GEMINI_MODEL}
 
 
 @app.post("/schedule")
@@ -293,10 +320,10 @@ def chat(req: ChatRequest):
         return {"intent": "schedule", "message": f"予定を保存しました: {text[:50]} ({d})", "saved": True}
 
     # --- 質問/相談系 intent ---
-    if not ANTHROPIC_API_KEY:
+    if not GEMINI_API_KEY:
         return {
             "intent": "answer",
-            "message": "AIキーが未設定のため回答できません（ANTHROPIC_API_KEY を設定してください）",
+            "message": "APIキーが未設定です（GEMINI_API_KEY を設定してください）",
             "saved": False,
         }
 
@@ -312,16 +339,31 @@ def chat(req: ChatRequest):
         f"タスク: {json.dumps(upcoming_data['tasks'], ensure_ascii=False)}"
     )
 
-    client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
-    resp = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=512,
-        system=SECRETARY_SYSTEM_PROMPT,
-        messages=[
-            {"role": "user", "content": f"以下はNotionのデータです:\n\n{context}\n\n質問: {text}"},
-        ],
-        timeout=15.0,
-    )
-    answer = resp.content[0].text
+    user_prompt = f"以下はNotionのデータです:\n\n{context}\n\n質問: {text}"
+
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        gemini_resp = requests.post(gemini_url, json={
+            "system_instruction": {"parts": [{"text": SECRETARY_SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": user_prompt}]}],
+        }, timeout=30)
+        gemini_resp.raise_for_status()
+        answer = gemini_resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        # エラー時はルールベースにフォールバック
+        schedules = today_data.get("schedules", [])
+        tasks = today_data.get("tasks", [])
+        if schedules or tasks:
+            lines = ["今日の予定/タスク:"]
+            for s in schedules:
+                lines.append(f"・{s['title']}")
+            for t in tasks:
+                lines.append(f"・{t['title']}（{t['status']}）")
+            answer = "\n".join(lines)
+        else:
+            answer = "まだNotionに何もない。まずはタスクか予定を登録しろ。"
 
     return {"intent": "answer", "message": answer, "saved": False}
