@@ -378,6 +378,47 @@ textarea#msgInput::placeholder { color: var(--muted); font-size: 13px; }
   margin-bottom: 14px;
 }
 
+.modal-sheet-tall {
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+}
+.modal-sheet-tall .debug-body {
+  flex: 1;
+  min-height: 100px;
+  max-height: min(58vh, calc(88vh - 200px));
+  margin-bottom: 10px;
+}
+
+.debug-item {
+  border-bottom: 1px solid var(--border);
+  padding: 12px 0;
+  font-size: 13px;
+}
+.debug-item:last-child { border-bottom: none; }
+.debug-meta {
+  font-size: 11px; color: var(--dim);
+  margin-bottom: 6px;
+  display: flex; flex-wrap: wrap; gap: 8px;
+}
+.debug-item-title { font-weight: 700; color: var(--text); margin-bottom: 4px; }
+.debug-content {
+  color: #c8c4d4; line-height: 1.45;
+  white-space: pre-wrap; word-break: break-word;
+}
+.debug-details summary {
+  cursor: pointer; font-size: 11px; color: var(--accent);
+  margin-top: 8px; user-select: none;
+}
+.debug-details pre {
+  margin: 8px 0 0; padding: 8px;
+  background: rgba(0,0,0,0.35);
+  border-radius: 8px;
+  font-size: 11px; white-space: pre-wrap; word-break: break-word;
+  max-height: 160px; overflow-y: auto;
+  color: #aaa;
+}
+
 .dots {
   display: flex; justify-content: center; gap: 6px; padding: 20px 0;
 }

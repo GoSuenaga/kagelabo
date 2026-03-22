@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.12';
+const VERSION = 'v0.13';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -23,6 +23,10 @@ const modalCancel   = document.getElementById('modalCancel');
 const upcomingModal = document.getElementById('upcomingModal');
 const upcomingBody  = document.getElementById('upcomingBody');
 const upcomingClose = document.getElementById('upcomingClose');
+const btnDebugList  = document.getElementById('btnDebugList');
+const debugModal    = document.getElementById('debugModal');
+const debugBody     = document.getElementById('debugBody');
+const debugClose    = document.getElementById('debugClose');
 const headerDate    = document.getElementById('headerDate');
 const btnModel      = document.getElementById('btnModel');
 const modelModal    = document.getElementById('modelModal');
@@ -426,6 +430,48 @@ function renderUpcomingModal(data) {
 
 upcomingClose.addEventListener('click', () => upcomingModal.classList.remove('open'));
 upcomingModal.addEventListener('click', e => { if(e.target===upcomingModal) upcomingModal.classList.remove('open'); });
+
+// ── Debug log modal（Notion デバッグDB） ───────────
+if (btnDebugList && debugModal && debugBody) {
+  btnDebugList.addEventListener('click', async () => {
+    debugModal.classList.add('open');
+    debugBody.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+    try {
+      const data = await get('/debug/recent?limit=40');
+      renderDebugModal(data);
+    } catch (e) {
+      debugBody.innerHTML = '<p class="empty-msg">取得できませんでした。</p>';
+    }
+  });
+  function renderDebugModal(data) {
+    if (data.error) {
+      debugBody.innerHTML = `<p class="empty-msg">${esc(data.error)}</p>`;
+      return;
+    }
+    const items = data.items || [];
+    if (!items.length) {
+      debugBody.innerHTML = '<p class="empty-msg">まだデバッグログがありません。「バグ: 〇〇」で送信するとここに溜まります。</p>';
+      return;
+    }
+    let h = `<p style="font-size:12px;color:var(--dim);margin:0 0 10px">${items.length}件（新しい順）</p>`;
+    items.forEach(it => {
+      const meta = [
+        it.status ? esc(it.status) : '',
+        it.date ? `日付 ${esc(it.date)}` : '',
+        it.created ? esc(it.created) : '',
+      ].filter(Boolean).join(' · ');
+      h += `<div class="debug-item">
+        <div class="debug-meta">${meta || '—'}</div>
+        <div class="debug-item-title">${esc(it.title || '(無題)')}</div>
+        ${it.content ? `<div class="debug-content">${esc(it.content)}</div>` : ''}
+        ${it.has_context ? `<details class="debug-details"><summary>会話コンテキスト</summary><pre>${esc(it.context || '')}</pre></details>` : ''}
+      </div>`;
+    });
+    debugBody.innerHTML = h;
+  }
+  debugClose.addEventListener('click', () => debugModal.classList.remove('open'));
+  debugModal.addEventListener('click', e => { if (e.target === debugModal) debugModal.classList.remove('open'); });
+}
 
 // ── Model modal ───────────────────────────────────
 btnModel.addEventListener('click', async () => {

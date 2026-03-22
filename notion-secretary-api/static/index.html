@@ -16,11 +16,14 @@
     <div class="header-left">
       <span class="header-icon">影</span>
       <div>
-        <div class="header-title">KAGE <span class="ver-badge">v0.12</span></div>
+        <div class="header-title">KAGE <span class="ver-badge">v0.13</span></div>
         <div class="header-sub" id="headerDate">Go's Shadow</div>
       </div>
     </div>
     <div class="header-right">
+      <button class="icon-btn" id="btnDebugList" title="バグ・デバッグ一覧">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M8 6h13M8 12h13M8 18h13"/><circle cx="4" cy="6" r="1.5" fill="currentColor"/><circle cx="4" cy="12" r="1.5" fill="currentColor"/><circle cx="4" cy="18" r="1.5" fill="currentColor"/></svg>
+      </button>
       <button class="icon-btn" id="btnCopyLog" title="会話ログをコピー">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
       </button>
@@ -87,6 +90,20 @@
       </div>
       <div class="modal-actions">
         <button class="btn-primary full" id="upcomingClose">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug log modal -->
+  <div class="modal-overlay" id="debugModal">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-bar"></div>
+      <h3 class="modal-title">🐛 デバッグログ（Notion）</h3>
+      <div id="debugBody" class="upcoming-body debug-body">
+        <div class="dots"><span></span><span></span><span></span></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-primary full" id="debugClose">閉じる</button>
       </div>
     </div>
   </div>

@@ -843,7 +843,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-24c",
+        "version": "2026-03-24d",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -1888,6 +1888,52 @@ def reminders(days: int = 3):
         return {"range": f"{start} ~ {end}", "items": items, "count": len(items)}
     except Exception:
         return {"range": f"{start} ~ {end}", "items": [], "count": 0}
+
+
+# ---------------------------------------------------------------------------
+# GET /debug/recent — Notionデバッグログ一覧（KAGEから呼び出し用）
+# ---------------------------------------------------------------------------
+
+def _summarize_debug_page(row: dict) -> dict:
+    props = row.get("properties", {})
+    title_rt = props.get("名前", {}).get("title", [])
+    title = title_rt[0]["plain_text"] if title_rt else "(無題)"
+    body_rt = props.get("内容", {}).get("rich_text", [])
+    body = body_rt[0]["plain_text"] if body_rt else ""
+    ctx_rt = props.get("会話コンテキスト", {}).get("rich_text", [])
+    ctx = ctx_rt[0]["plain_text"] if ctx_rt else ""
+    st = props.get("ステータス", {}).get("select")
+    status = st["name"] if st else ""
+    dt = (props.get("日付", {}).get("date") or {}).get("start", "")
+    created = (row.get("created_time") or "")[:16].replace("T", " ")
+    return {
+        "page_id": row["id"],
+        "title": title,
+        "status": status,
+        "date": dt,
+        "created": created,
+        "content": body[:1200] + ("…" if len(body) > 1200 else ""),
+        "context": ctx[:2000] + ("…" if len(ctx) > 2000 else ""),
+        "has_context": bool(ctx),
+    }
+
+
+@app.get("/debug/recent")
+def debug_recent(limit: int = 30):
+    """デバッグログDBの直近エントリ（新しい順）"""
+    if not API_KEY:
+        return {"items": [], "count": 0, "error": "NOTION_API_KEY 未設定"}
+    lim = max(1, min(int(limit), 50))
+    try:
+        data = _notion_post(f"/databases/{DB['Debug']}/query", {
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+            "page_size": lim,
+        })
+        items = [_summarize_debug_page(r) for r in data.get("results", [])]
+        return {"items": items, "count": len(items)}
+    except Exception as e:
+        logger.error("[debug/recent] %s", e)
+        return {"items": [], "count": 0, "error": str(e)}
 
 
 # ---------------------------------------------------------------------------
