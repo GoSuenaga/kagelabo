@@ -322,6 +322,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - memo: 買い物・覚えておくこと・TODO・短いメモ
 - idea: アイデア・企画・思いついたこと
 - schedule: 締切・日付・予定・〜までに
+- profile: 覚えて・俺の情報・プロフィール・自己紹介に使う情報
 - today: 今日・今日の予定
 - upcoming: 今後・来週・スケジュール確認
 - think: 整理して・優先順位・何から・頭の中
@@ -331,13 +332,15 @@ Few-shot例:
 "台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":""}}
 "RAGの動画修正、来週金曜締切" → {{"intent":"schedule","title":"RAG動画修正","date":"2025-04-18","content":"来週金曜締切"}}
 "Shadowっぽいアイデア" → {{"intent":"idea","title":"Shadow分身UI","content":"秘書感を出す","date":""}}
+"覚えて: パーソル研修は毎月第2火曜" → {{"intent":"profile","title":"パーソル研修","content":"毎月第2火曜","date":"","category":"プロジェクト"}}
+"俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
 
-出力: {{"intent":"...","title":"...","content":"...","date":"..."}}\
+出力: {{"intent":"...","title":"...","content":"...","date":"...","category":"..."}}\
 """
 
 
@@ -362,7 +365,9 @@ def _summarize_via_gemini(instruction: str, data: str) -> str:
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
     text = message.lower()
-    if any(k in text for k in ["買", "メモ", "覚えて", "todo", "to do"]):
+    if any(k in text for k in ["覚えて", "覚えといて", "プロフィール", "俺の情報"]):
+        return {"intent": "profile", "title": message, "content": "", "date": "", "category": "その他"}
+    elif any(k in text for k in ["買", "メモ", "todo", "to do"]):
         return {"intent": "memo", "title": message, "content": "", "date": ""}
     elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
         return {"intent": "idea", "title": message, "content": "", "date": ""}
@@ -627,7 +632,7 @@ def chat(req: ChatRequest):
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
-    KNOWN_INTENTS = {"memo", "idea", "schedule", "today", "upcoming", "think", "answer", "unknown"}
+    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "today", "upcoming", "think", "answer", "unknown"}
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
         intent = "answer"
@@ -669,6 +674,20 @@ def chat(req: ChatRequest):
             return {"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True}
         except Exception:
             return {"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+
+    # --- profile ---
+    if intent == "profile":
+        title = classified.get("title") or text[:20]
+        content = classified.get("content") or text
+        category = classified.get("category") or "その他"
+        props = {**_title_prop(title)}
+        props.update(_rich_text_prop("内容", content))
+        props["カテゴリ"] = {"select": {"name": category}}
+        try:
+            _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
+            return {"intent": "profile", "message": f"ボス、覚えました: {title}", "saved": True}
+        except Exception:
+            return {"intent": "profile", "message": f"ボス、保存に失敗しました: {title}", "saved": False}
 
     # --- today ---
     if intent == "today":
