@@ -329,7 +329,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23e",
+        "version": "2026-03-23f",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -582,10 +582,27 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "answer", "title": "", "content": "", "date": ""}
 
 
-def _classify_intent_via_gemini(text: str) -> dict:
-    """Gemini APIでintentを分類。失敗時は {"intent": "unknown"} を返す"""
+def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> dict:
+    """Gemini APIでintentを分類。会話履歴があれば文脈も考慮する"""
     today_str = date.today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
+
+    history_context = ""
+    if session_id and session_id in CONVERSATIONS:
+        recent = CONVERSATIONS[session_id]["msgs"][-6:]
+        if recent:
+            lines = []
+            for m in recent:
+                prefix = "ボス" if m["role"] == "user" else "影"
+                lines.append(f"{prefix}: {m['content'][:200]}")
+            history_context = (
+                "\n\n直前の会話履歴（文脈判断に使うこと）:\n"
+                + "\n".join(lines)
+                + "\n\n上の会話の流れを踏まえて、以下の新しい発言を分類してください。"
+                "\n「それ」「記録して」「やって」等の指示語は会話履歴から内容を補完してtitle/contentに入れること。"
+            )
+
+    user_input = f"{history_context}\n\nユーザーの新しい発言: {text}"
 
     try:
         gemini_url = (
@@ -594,7 +611,7 @@ def _classify_intent_via_gemini(text: str) -> dict:
         )
         resp = requests.post(gemini_url, json={
             "system_instruction": {"parts": [{"text": system_prompt}]},
-            "contents": [{"parts": [{"text": text}]}],
+            "contents": [{"parts": [{"text": user_input}]}],
             "generationConfig": {
                 "response_mime_type": "application/json",
                 "temperature": 0.1,
@@ -829,8 +846,8 @@ def chat(req: ChatRequest):
 
     _add_to_session(sid, "user", text)
 
-    # --- Geminiでintent分類 ---
-    classified = _classify_intent_via_gemini(text)
+    # --- Geminiでintent分類（会話履歴を含めて文脈判断） ---
+    classified = _classify_intent_via_gemini(text, session_id=sid)
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
