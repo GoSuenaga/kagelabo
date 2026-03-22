@@ -327,6 +327,24 @@ Few-shot例:
 """
 
 
+def _summarize_via_gemini(instruction: str, data: str) -> str:
+    """Notionデータを秘書トーンで要約。失敗時はデータをそのまま返す"""
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(gemini_url, json={
+            "system_instruction": {"parts": [{"text": SECRETARY_SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": f"{instruction}\n\n{data}"}]}],
+        }, timeout=15)
+        resp.raise_for_status()
+        return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception as e:
+        logger.error("[summarize] Gemini failed: %s", e)
+        return data
+
+
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
     text = message.lower()
@@ -623,31 +641,29 @@ def chat(req: ChatRequest):
     if intent == "today":
         try:
             data = _fetch_today()
-            lines = [f"今日（{data['date']}）:"]
-            for s in data.get("schedules", []):
-                lines.append(f"・予定: {s['title']}")
-            for t in data.get("tasks", []):
-                lines.append(f"・タスク: {t['title']}（{t['status']}）")
-            if len(lines) == 1:
-                lines.append("今日の予定・タスクはまだない。")
-            return {"intent": "today", "message": "\n".join(lines), "saved": False}
+            if not data.get("schedules") and not data.get("tasks"):
+                return {"intent": "today", "message": "ボス、今日の予定・タスクはまだ登録がありません。", "saved": False}
+            answer = _summarize_via_gemini(
+                f"今日（{data['date']}）のNotionデータです。ボスに今日の予定を簡潔に伝えてください。",
+                json.dumps(data, ensure_ascii=False),
+            )
+            return {"intent": "today", "message": answer, "saved": False}
         except Exception:
-            return {"intent": "today", "message": "Notionからデータを取得できなかった。", "saved": False}
+            return {"intent": "today", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False}
 
     # --- upcoming ---
     if intent == "upcoming":
         try:
             data = _fetch_upcoming(7)
-            lines = [f"今週（{data['range']}）:"]
-            for s in data.get("schedules", []):
-                lines.append(f"・{s.get('date', '')}: {s['title']}")
-            for t in data.get("tasks", []):
-                lines.append(f"・{t.get('date', '')}: {t['title']}（{t['status']}）")
-            if len(lines) == 1:
-                lines.append("今週の予定・タスクはまだない。")
-            return {"intent": "upcoming", "message": "\n".join(lines), "saved": False}
+            if not data.get("schedules") and not data.get("tasks"):
+                return {"intent": "upcoming", "message": "ボス、今週の予定・タスクはまだ登録がありません。", "saved": False}
+            answer = _summarize_via_gemini(
+                f"今週（{data['range']}）のNotionデータです。ボスに今週の予定を簡潔に伝えてください。",
+                json.dumps(data, ensure_ascii=False),
+            )
+            return {"intent": "upcoming", "message": answer, "saved": False}
         except Exception:
-            return {"intent": "upcoming", "message": "Notionからデータを取得できなかった。", "saved": False}
+            return {"intent": "upcoming", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False}
 
     # --- think ---
     if intent == "think":
