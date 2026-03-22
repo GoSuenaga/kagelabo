@@ -8,6 +8,7 @@ from datetime import date
 
 import requests
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 # ---------------------------------------------------------------------------
@@ -31,6 +32,13 @@ DB = {
 BASE = "https://api.notion.com/v1"
 
 app = FastAPI(title="Notion Secretary API", version="1.0.0")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ---------------------------------------------------------------------------
 # Notion APIヘルパー
