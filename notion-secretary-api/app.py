@@ -11,7 +11,8 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from pathlib import Path
 from typing import Optional
 
@@ -218,6 +219,56 @@ _profile_path = Path(__file__).parent / "boss_profile.md"
 BOSS_PROFILE = _profile_path.read_text(encoding="utf-8") if _profile_path.exists() else "（プロフィール未設定）"
 logger.info("[init] boss_profile.md loaded: %d chars", len(BOSS_PROFILE))
 
+# 日時回答の捏造防止用（環境変数 KAGE_TZ で変更可、既定 Asia/Tokyo）
+KAGE_TZ = os.environ.get("KAGE_TZ", "Asia/Tokyo")
+_WD_JA = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def _now_clock_block() -> str:
+    """回答プロンプトに埋め込む「正しい現在日時」。LLMに推測させない。"""
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+    except Exception:
+        tz = ZoneInfo("Asia/Tokyo")
+    now = datetime.now(tz)
+    wd = _WD_JA[now.weekday()]
+    return (
+        "【現在の実日時（正解はこのブロックのみ。記憶・推測・学習データの日付は使わないこと）】\n"
+        f"- タイムゾーン: {KAGE_TZ}\n"
+        f"- {now.year}年{now.month}月{now.day}日（{wd}曜日） {now.hour:02d}時{now.minute:02d}分{now.second:02d}秒\n"
+        f"- ISO: {now.isoformat()}\n"
+    )
+
+
+def _try_clock_only_reply(message: str) -> Optional[str]:
+    """「今日何月何日」「今何時」などはサーバー時刻で直接答え、LLMの捏造を防ぐ"""
+    t = message.replace(" ", "").replace("　", "")
+    has_today = "今日" in t or "本日" in t
+    ask_date = has_today and "何月何日" in t
+    ask_dow = "何曜日" in t and (has_today or ask_date)
+    # 「何時間」にマッチしないよう negative lookahead
+    ask_time = bool(re.search(r"(今|現在|いま).{0,8}何時(?!間)", t))
+    if not (ask_date or ask_dow or ask_time):
+        return None
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+    except Exception:
+        tz = ZoneInfo("Asia/Tokyo")
+    now = datetime.now(tz)
+    wd = _WD_JA[now.weekday()]
+    chunks = []
+    if ask_date or ask_dow:
+        chunks.append(f"{now.year}年{now.month}月{now.day}日（{wd}曜日）")
+    if ask_time:
+        chunks.append(f"いまの時刻は{now.hour}時{now.minute}分です（{KAGE_TZ}）")
+    elif not chunks:
+        return None
+    # 「今何時？」だけのときも日付を添える
+    if ask_time and not (ask_date or ask_dow):
+        chunks.insert(0, f"{now.year}年{now.month}月{now.day}日（{wd}曜日）")
+    return "、".join(chunks) + "。"
+
+
 SECRETARY_SYSTEM_PROMPT = f"""\
 あなたはGo_KAGE — ボス専属のAI秘書「影」。
 
@@ -231,6 +282,7 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 - 優先度が高いものだけ伝える
 - データなしなら「まだ登録がありません」
 - 会話履歴がある場合、文脈を踏まえて返答する。「さっき」「それ」等の指示語を正しく解決する
+- 「今日は何月何日」「今何時」「曜日は」等の質問には、メッセージ先頭の【現在の実日時】ブロックの値だけを答える。それ以外の年月日・時刻を出してはいけない
 
 文書作成の依頼時：
 - 「まとめて」「書いて」「作って」等の依頼にはProfile DBの情報をフル活用する
@@ -410,7 +462,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23l",
+        "version": "2026-03-23m",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -1120,6 +1172,10 @@ def chat(req: ChatRequest):
         return _respond({"intent": "think", "message": result.get("message", ""), "saved": False})
 
     # --- answer: Notionデータ+会話履歴を参照してGemini回答 ---
+    clock_reply = _try_clock_only_reply(text)
+    if clock_reply:
+        return _respond({"intent": "answer", "message": clock_reply, "saved": False})
+
     try:
         brain = _fetch_brain()
     except Exception:
@@ -1137,7 +1193,11 @@ def chat(req: ChatRequest):
     if history_text:
         context = f"{history_text}\n\n{context}"
 
-    user_prompt = f"以下はNotionに保存されているボスの情報と会話履歴です:\n\n{context}\n\nボスの発言: {text}"
+    clock = _now_clock_block()
+    user_prompt = (
+        f"{clock}\n"
+        f"以下はNotionに保存されているボスの情報と会話履歴です:\n\n{context}\n\nボスの発言: {text}"
+    )
 
     parts = [{"text": user_prompt}]
     if req.image:
