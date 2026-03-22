@@ -120,7 +120,7 @@ async function get(path) {
 }
 
 // ── Response renderer ─────────────────────────────
-const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶' };
+const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶', done:'🗑️ 完了' };
 
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
@@ -140,6 +140,16 @@ function renderResponse(data, originalText) {
         <button class="cfm-btn" data-confirm="skip">キャンセル</button>
       </div>
     `, 'warn');
+    return;
+  }
+
+  if (intent === 'done' && data.candidates && data.candidates.length > 0) {
+    let html = esc(message) + '<div class="confirm-row" style="flex-direction:column;gap:6px;margin-top:8px">';
+    data.candidates.forEach(c => {
+      html += `<button class="cfm-btn archive-btn" data-pageid="${esc(c.page_id)}" data-title="${esc(c.title)}" style="text-align:left;padding:8px 12px">🗑️ ${esc(c.title)}（${esc(c.db)}）</button>`;
+    });
+    html += '</div>';
+    addMsg('kage', html);
     return;
   }
 
@@ -219,6 +229,7 @@ document.querySelectorAll('.qa').forEach(btn => {
     const a = btn.dataset.action;
     if (a === 'schedule') { openSched(); return; }
     if (a === 'brain') { handleThink(); return; }
+    if (a === 'cleanup') { handleCleanup(); return; }
     const prefix = { memo:'メモ: ', idea:'アイデア: ' }[a];
     if (prefix) { msgInput.value = prefix; msgInput.focus(); autoResize(); }
   });
@@ -235,6 +246,31 @@ async function handleThink() {
   } catch(e) {
     hideTyping();
     addMsg('kage','ボス、整理に失敗しました。通信エラーです。','error');
+  }
+}
+
+// ── Cleanup (片付けボタン) ────────────────────────
+async function handleCleanup() {
+  addUser('片付けて');
+  showTyping();
+  try {
+    const data = await get('/cleanup');
+    hideTyping();
+    const items = data.candidates || [];
+    if (!items.length) {
+      addMsg('kage', '片付けるものはありません。すっきりしてますね。');
+      return;
+    }
+    let html = `${items.length}件のアイテムがあります。不要なものをタップしてアーカイブできます。<div class="confirm-row" style="flex-direction:column;gap:6px;margin-top:8px">`;
+    items.forEach(c => {
+      const label = c.db === 'Schedule' ? '📅' : c.db === 'Tasks' ? '✅' : '📝';
+      html += `<button class="cfm-btn archive-btn" data-pageid="${esc(c.page_id)}" data-title="${esc(c.title)}" style="text-align:left;padding:8px 12px">${label} ${esc(c.title)} <span style="color:var(--dim);font-size:11px">${c.created||''}</span></button>`;
+    });
+    html += '</div>';
+    addMsg('kage', html);
+  } catch(e) {
+    hideTyping();
+    addMsg('kage', '片付けリストの取得に失敗しました。', 'error');
   }
 }
 
@@ -396,6 +432,22 @@ modelModal.addEventListener('click', e => { if(e.target===modelModal) modelModal
 btnReload.addEventListener('click', () => {
   btnReload.classList.add('spinning');
   setTimeout(() => location.reload(), 300);
+});
+
+// ── Archive button handler ────────────────────────
+chatArea.addEventListener('click', async e => {
+  const btn = e.target.closest('.archive-btn');
+  if (!btn) return;
+  const pageId = btn.dataset.pageid;
+  const title = btn.dataset.title;
+  btn.disabled = true; btn.textContent = '処理中…';
+  try {
+    await post('/archive', {page_id: pageId});
+    btn.textContent = `✓ ${title} をアーカイブしました`;
+    btn.style.opacity = '0.5';
+  } catch(e) {
+    btn.textContent = `✗ 失敗: ${title}`;
+  }
 });
 
 // ── Image input ───────────────────────────────────

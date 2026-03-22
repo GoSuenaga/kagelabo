@@ -346,6 +346,39 @@ def _date_prop(key: str, date_str: str) -> dict:
     return {key: {"date": {"start": date_str}}}
 
 
+def _archive_page(page_id: str) -> bool:
+    """Notionページをアーカイブ（ゴミ箱）"""
+    try:
+        _notion_patch(f"/pages/{page_id}", {"archived": True})
+        logger.info("[archive] Archived page: %s", page_id)
+        return True
+    except Exception as e:
+        logger.error("[archive] Failed: %s", e)
+        return False
+
+
+def _search_and_archive(title_query: str) -> dict:
+    """タイトルで全DBを検索し、一致するページをアーカイブ"""
+    found = []
+    for db_name, db_id in DB.items():
+        if db_name in ("ChatLog",):
+            continue
+        try:
+            data = _notion_post(f"/databases/{db_id}/query", {
+                "filter": {"property": "名前", "title": {"contains": title_query}},
+                "page_size": 5,
+            })
+            for row in data.get("results", []):
+                if row.get("archived"):
+                    continue
+                t = row["properties"]["名前"]["title"]
+                name = t[0]["plain_text"] if t else ""
+                found.append({"page_id": row["id"], "title": name, "db": db_name})
+        except Exception:
+            pass
+    return found
+
+
 # ---------------------------------------------------------------------------
 # リクエストモデル
 # ---------------------------------------------------------------------------
@@ -376,7 +409,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23h",
+        "version": "2026-03-23i",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -524,12 +557,14 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」＋新情報
 - today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
 - upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
+- done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - think: 整理して・優先順位・何から・頭の中
 - answer: それ以外すべて。質問・相談・依頼・報告・長文の情報共有。迷ったらanswer
 
 重要な判定ルール:
 - 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer
 - 「覚えて」「覚えといて」＋新情報 → profile
+- 「もうやった」「終わった」「いらない」「消して」＋対象アイテム → done（titleに対象を入れる）
 - ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
 - today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
 - 迷ったらanswerにする
@@ -548,6 +583,9 @@ Few-shot例:
 "自己紹介文を作ってください" → {{"intent":"answer","title":"","content":"","date":""}}
 "今日の予定です。15:00から定例、16:00からVision Play" → {{"intent":"answer","title":"","content":"","date":""}}
 "今週こんな感じで動いてる。月曜はCAの定例、水曜はデジハリ" → {{"intent":"answer","title":"","content":"","date":""}}
+"洗剤もう買ったよ" → {{"intent":"done","title":"洗剤","content":"","date":""}}
+"シチューはもう食べた" → {{"intent":"done","title":"シチュー","content":"","date":""}}
+"RAG動画の修正終わった" → {{"intent":"done","title":"RAG動画修正","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
@@ -616,6 +654,8 @@ def _summarize_via_gemini(instruction: str, data: str) -> str:
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
     text = message.lower()
+    if any(k in text for k in ["もうやった", "終わった", "いらない", "消して", "削除して", "もう食べた", "もう買った"]):
+        return {"intent": "done", "title": message, "content": "", "date": ""}
     is_request = any(k in text for k in ["してください", "して", "まとめて", "教えて", "知ってる", "作って"])
     if not is_request and any(k in text for k in ["覚えて", "覚えといて", "俺の情報"]):
         return {"intent": "profile", "title": message, "content": "", "date": "", "category": "その他"}
@@ -904,7 +944,7 @@ def chat(req: ChatRequest):
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
-    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "today", "upcoming", "think", "answer", "unknown"}
+    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "done", "today", "upcoming", "think", "answer", "unknown"}
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
         intent = "answer"
@@ -971,6 +1011,24 @@ def chat(req: ChatRequest):
             return _respond({"intent": "profile", "message": f"覚えました: {title}", "saved": True})
         except Exception:
             return _respond({"intent": "profile", "message": f"保存に失敗しました: {title}", "saved": False})
+
+    # --- done (完了/削除) ---
+    if intent == "done":
+        query = classified.get("title") or text[:30]
+        found = _search_and_archive(query)
+        if len(found) == 1:
+            _archive_page(found[0]["page_id"])
+            return _respond({"intent": "done", "message": f"かしこまりました。「{found[0]['title']}」をアーカイブしました。", "saved": False, "archived": True})
+        elif len(found) > 1:
+            items_text = "\n".join(f"・{f['title']}（{f['db']}）" for f in found[:5])
+            return _respond({
+                "intent": "done",
+                "message": f"該当が{len(found)}件あります。どれをアーカイブしますか？\n{items_text}",
+                "saved": False, "archived": False,
+                "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in found[:5]],
+            })
+        else:
+            return _respond({"intent": "done", "message": f"「{query}」に該当するアイテムが見つかりませんでした。", "saved": False, "archived": False})
 
     # --- today ---
     if intent == "today":
@@ -1116,6 +1174,59 @@ def reminders(days: int = 3):
         return {"range": f"{start} ~ {end}", "items": items, "count": len(items)}
     except Exception:
         return {"range": f"{start} ~ {end}", "items": [], "count": 0}
+
+
+# ---------------------------------------------------------------------------
+# POST /archive — アイテムをアーカイブ
+# ---------------------------------------------------------------------------
+
+class ArchiveRequest(BaseModel):
+    page_id: str
+
+@app.post("/archive")
+def archive_item(req: ArchiveRequest):
+    """Notionページをアーカイブ"""
+    ok = _archive_page(req.page_id)
+    if ok:
+        return {"message": "アーカイブしました。", "archived": True}
+    raise HTTPException(status_code=500, detail="アーカイブに失敗しました")
+
+
+# ---------------------------------------------------------------------------
+# GET /cleanup — 片付け候補を返す
+# ---------------------------------------------------------------------------
+
+@app.get("/cleanup")
+def cleanup():
+    """古い/完了済みのアイテムを片付け候補として返す"""
+    today_str = date.today().isoformat()
+    candidates = []
+
+    for db_name in ("Memos", "Tasks", "Schedule"):
+        try:
+            body: dict = {
+                "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
+                "page_size": 15,
+            }
+            if db_name == "Schedule":
+                body["filter"] = {"property": "日付", "date": {"before": today_str}}
+            data = _notion_post(f"/databases/{DB[db_name]}/query", body)
+            for row in data.get("results", []):
+                if row.get("archived"):
+                    continue
+                t = row["properties"]["名前"]["title"]
+                name = t[0]["plain_text"] if t else "(無題)"
+                created = row.get("created_time", "")[:10]
+                candidates.append({
+                    "page_id": row["id"],
+                    "title": name,
+                    "db": db_name,
+                    "created": created,
+                })
+        except Exception:
+            pass
+
+    return {"candidates": candidates, "count": len(candidates)}
 
 
 # ---------------------------------------------------------------------------

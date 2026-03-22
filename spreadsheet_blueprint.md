@@ -1,4 +1,4 @@
-# VANTAN 台本スプレッドシート — 完全設計図 v1.6
+# VANTAN 台本スプレッドシート — 完全設計図 v1.7
 
 > このドキュメントをAI（Claude Code、Gemini等）に読み込ませることで、
 > 4シート構成の台本スプレッドシートをゼロから再現できる。
@@ -6,6 +6,7 @@
 
 ## バージョン履歴
 
+- v1.7（2026-03-23）動画生成フローを確定・追記。Imagen 4で静止画チェック→Veo3で動画化（4秒）→ElevenLabsナレーション→SE（ローカル）→Creatomate合成。テロップ位置をセンターに。映像プロンプトは日本語をImagen 4に渡す方式に変更（精度が良い）。
 - v1.6（2026-03-23）設計図を.mdファイルに外出し。Vlogカットにシーンテンプレートからのランダム選択を反映。カットタイプをVlog/Schoolの二択に統一（混合廃止）。
 - v1.5 人物を「20歳の日本人女性」に具体化。カット1をSchoolに変更、コース別映像。
 - v1.4 スタイルシートをvlog_prompt_bible.mdベースでフル更新。プロンプト注意事項3点。
@@ -321,7 +322,7 @@ A small grey cat [動作] on a soft rug.
 | 6 | 働きながら学べる | **Vlog** | シーンテンプレートからランダム選択（カフェバイト等） |
 | 7 | バイトや仕事もできるから | **Vlog** | シーンテンプレートからランダム選択 |
 | 8 | 学費の心配は | **School** | 安心した雰囲気の手元 |
-| 9 | 一切なし！ | **School** | ジェスチャー（後ろ姿） |
+| 9 | 一切なし！ | **School** | 開放感のある風景（空や公園） |
 | 10 | これめっちゃ嬉しい。 | **Vlog** | シーンテンプレートからランダム選択（ガッツポーズ等） |
 | 11 | まずは資料請求してみて下さい！ | **School** | スマホ操作の手元 |
 
@@ -368,12 +369,80 @@ Vlogカット（2,3,6,7,10）は `vlog_prompt_bible.md` のシーンテンプレ
 
 ---
 
-## 8. 技術実装メモ（Claude Code用）
+## 8. 動画生成フロー（確定版）
+
+### 全体フロー
+
+```
+Step 1: 台本生成
+  テンプレート × クライアント情報 → スプレッドシート自動生成（4シート構成）
+
+Step 2: 静止画チェック
+  映像プロンプト（日本語）→ Imagen 4 Fast で静止画生成（9:16縦型）
+  ※Imagen 4は日本語プロンプト対応。ENより日本語の方が精度が良い
+  → 人間が画像を確認 → NG箇所はプロンプト修正して再生成
+
+Step 3: 動画生成
+  映像プロンプト（EN）→ Veo3で動画生成
+  ※Veo3は英語のみ対応
+  - duration: 4s（SNS広告では1カット4秒以上は不要）
+  - aspect_ratio: 9:16
+  - resolution: 720p
+  - generate_audio: false
+  - 1カットずつ順番に生成（並列だとタイムアウトするため）
+
+Step 4: ナレーション生成
+  各カットのナレーションテキスト → ElevenLabs（fal.ai経由）で音声生成
+  - voice: 女の子1（KgETZ36CCLD1Cob4xpkv）
+  - 並列生成OK（軽い処理）
+
+Step 5: SE（効果音）選択
+  ローカルの clients/vantan/se/ からランダムに選択:
+  - /冒頭（8ファイル）→ カット1に割り当て
+  - /商材名（5ファイル）→ スクール名がナレーションに含まれるカットに割り当て
+  - /他スクリプト（22ファイル）→ その他のカットに1つずつ割り当て
+
+Step 6: 合成（Creatomate）
+  動画 + 音声 + テロップ + ロゴ + SE を1本の動画に合成
+  - テロップ位置: 画面中央（x:50%, y:50%）
+  - ロゴ: ○のカットのみ画面中央にオーバーレイ（テロップなし）
+  - トランジション: crossfade 0.1秒
+  - フォント: Noto Sans JP, Bold 900, 白, 影付き
+  - 出力: 720x1280, 30fps, mp4
+```
+
+### 各ステップで使うAPI/ツール
+
+| ステップ | ツール | APIキー |
+|---------|--------|---------|
+| 台本生成 | gspread | oauth_credentials.json |
+| 静止画 | Imagen 4 Fast (google-genai) | GEMINI_API_KEY |
+| 動画 | Veo3 (fal.ai) | FAL_API_KEY |
+| ナレーション | ElevenLabs (fal.ai) | FAL_API_KEY |
+| SE | ローカルファイル | なし |
+| 合成 | Creatomate | CREATOMATE_API_KEY |
+
+### ファイルアップロード
+
+Creatomateはローカルファイルを直接受け取れないため、動画・音声・ロゴ・SEはfal.aiのストレージにアップロードしてURL化する:
+```
+POST https://rest.alpha.fal.ai/storage/upload/initiate
+→ upload_url, file_url を取得
+PUT upload_url にファイルをアップロード
+→ file_url をCreatomateに渡す
+```
+
+---
+
+## 9. 技術実装メモ（Claude Code用）
 
 ### 必要環境
 - Python 3.x
 - gspread（Google Sheets API）
+- google-genai（Imagen 4）
 - openpyxl（Excel読み込み）
+- requests（API呼び出し）
+- python-dotenv
 - oauth_credentials.json + token.json（Google OAuth認証）
 
 ### ファイル構成
@@ -381,15 +450,26 @@ Vlogカット（2,3,6,7,10）は `vlog_prompt_bible.md` のシーンテンプレ
 ├── spreadsheet_blueprint.md    ← このファイル（設計図）
 ├── vlog_prompt_bible.md        ← Vlogスタイルの設計思想
 ├── vlogプロンプト - シート1.csv  ← Vlogプロンプトストック（92個）
+├── update_client_master.py     ← クライアントマスター更新スクリプト
 ├── oauth_credentials.json      ← Google OAuth認証
 ├── token.json                  ← 認証トークン
-├── update_client_master.py     ← クライアントマスター更新スクリプト
+├── .env                        ← APIキー設定
 ├── clients/vantan/
 │   ├── 【バンタン_CA極案件】各スクール訴求内容 (2).xlsx
-│   └── 2026/                   ← ロゴ画像
-│       ├── VDI/専門部/
-│       ├── VGA/専門部/
-│       └── ...
+│   ├── 2026/                   ← ロゴ画像
+│   │   ├── VDI/専門部/
+│   │   ├── VGA/専門部/
+│   │   └── ...
+│   ├── se/                     ← 効果音（ローカル保存済み）
+│   │   ├── 冒頭/（8ファイル）
+│   │   ├── 商材名/（5ファイル）
+│   │   └── 他スクリプト/（22ファイル）
+│   └── bgm/                    ← BGM（未使用）
+├── output/
+│   ├── no1_images/             ← 静止画チェック用
+│   ├── no1_videos/             ← 各カット動画
+│   ├── no1_audio/              ← 各カットナレーション
+│   └── no1_final_v3.mp4        ← 完成動画
 ```
 
 ### スプレッドシート生成の流れ
@@ -405,3 +485,12 @@ Vlogカット（2,3,6,7,10）は `vlog_prompt_bible.md` のシーンテンプレ
 ### 元データ
 - ユーザー整理版: https://docs.google.com/spreadsheets/d/1wtF5EQEh4uZYgt5osm0F-xwUyl1A4YzZdneneFlhgCk
 - クライアントマスター: https://docs.google.com/spreadsheets/d/1m6zqCVjAUaAT0LF09K9dMhBbVmyQkah1fTK9gnPooaE
+- 最新台本（v1.6）: https://docs.google.com/spreadsheets/d/1yyvxMYsaChW1nnnua1owfRuk673keHkoK3zvVVnIDKQ
+
+### 学んだこと（プロンプト注意事項）
+1. 実物がないもの（校舎外観等）は指定しない — 広告の正確性
+2. 文字情報が映り込むプロンプトは避ける — AIが変な文字を生成するため
+3. 人物を出す場合は必ず「Japanese」「日本人」と明記 — 外国人が出やすい
+4. Imagen 4には日本語プロンプトの方が精度が良い
+5. Veo3は並列生成するとタイムアウトする → 1カットずつ順番に
+6. ナレーションの長さがカットの長さを決める（Creatomateの仕様）
