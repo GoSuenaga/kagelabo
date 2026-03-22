@@ -48,34 +48,9 @@ DB = {
 
 BASE = "https://api.notion.com/v1"
 
-BOSS_PROFILE = """\
-【ボスプロフィール】
-氏名: 末永 剛（Suenaga Go）
-生年月日: 1979年9月23日（46歳）
-居住地: 東京都目黒区
-家族: 妻・裕梨（1994年生）
-
-【学歴】
-東邦大東邦中高 → 東京藝術大学 美術学部 先端芸術表現科
-アテネフランセ映画美学校 メソッドコース
-
-【キャリア】
-2004-2008: フリーランス（Web/DTP/映像）
-2008-2009: 岡本一宣デザイン事務所
-2011-2012: JTクリエイティブサービス
-2013-現在: 株式会社サイバーエージェント（アートディレクター/プランナー）
-兼任: デジタルハリウッド大学 講師（生成AI×クリエイティブ）
-
-【スキル】
-デザイン: Photoshop, Illustrator（10年以上）
-映像: AfterEffects, Final Cut Pro
-音楽: Logic Pro, Ableton Live
-プログラミング: Max/MSP, OOP
-武道: 合気道2段（米国デンバー「日本館」内弟子卒）
-
-【属性】
-「High Tech（デジタル/AI）」×「High Touch（身体/食）」\
-"""
+_profile_path = Path(__file__).parent / "boss_profile.md"
+BOSS_PROFILE = _profile_path.read_text(encoding="utf-8") if _profile_path.exists() else "（プロフィール未設定）"
+logger.info("[init] boss_profile.md loaded: %d chars", len(BOSS_PROFILE))
 
 SECRETARY_SYSTEM_PROMPT = f"""\
 あなたはGo_KAGE — ボス専属のAI秘書「影」。
