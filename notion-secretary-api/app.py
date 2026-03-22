@@ -56,6 +56,9 @@ DB = {
     "Sleep":    os.environ.get("NOTION_DB_SLEEP", ""),
 }
 
+# Tasks DB の所要時間（分）。Notion に number プロパティを追加して名前を合わせる（無ければ保存時に自動でスキップ）
+NOTION_TASK_MINUTES_PROP = os.environ.get("NOTION_TASK_MINUTES_PROP", "見積分")
+
 BASE = "https://api.notion.com/v1"
 
 # ---------------------------------------------------------------------------
@@ -126,7 +129,10 @@ def _get_session(session_id: Optional[str]) -> tuple:
         msgs = _load_session_from_notion(session_id)
     else:
         msgs = []
-    CONVERSATIONS[sid] = {"msgs": msgs, "ts": now, "count": 0, "page_id": None, "bedtime_iso": None}
+    CONVERSATIONS[sid] = {
+        "msgs": msgs, "ts": now, "count": 0, "page_id": None,
+        "bedtime_iso": None, "pending_task": None,
+    }
     return sid, msgs
 
 
@@ -286,6 +292,7 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 - 会話履歴がある場合、文脈を踏まえて返答する。「さっき」「それ」等の指示語を正しく解決する
 - 「今日は何月何日」「今何時」「曜日は」等の質問には、メッセージ先頭の【現在の実日時】ブロックの値だけを答える。それ以外の年月日・時刻を出してはいけない
 - 睡眠ログのデータがあるとき、無理に触れなくてよいが、体調・ペースの相談ではさりげなく活かしてよい
+- タスクに「見積分（分）」が付いているデータは、優先度や時間の使い方の相談で具体的に活かしてよい
 
 文書作成の依頼時：
 - 「まとめて」「書いて」「作って」等の依頼にはProfile DBの情報をフル活用する
@@ -478,6 +485,132 @@ def _sleep_latest_open() -> Optional[dict]:
 def _ensure_session_bedtime(sid: str) -> None:
     if sid in CONVERSATIONS and "bedtime_iso" not in CONVERSATIONS[sid]:
         CONVERSATIONS[sid]["bedtime_iso"] = None
+
+
+def _ensure_session_pending_task(sid: str) -> None:
+    if sid in CONVERSATIONS and "pending_task" not in CONVERSATIONS[sid]:
+        CONVERSATIONS[sid]["pending_task"] = None
+
+
+def _parse_duration_minutes(text: str) -> Optional[int]:
+    """「30分」「1時間半」「2.5時間」などから分に変換。取れなければ None"""
+    s = text.strip().replace(" ", "").replace("　", "")
+    if not s or len(s) > 40:
+        return None
+    m = re.fullmatch(r"(\d+(?:\.\d+)?)時間", s)
+    if m:
+        return int(float(m.group(1)) * 60)
+    m = re.fullmatch(r"(\d+)時間半", s)
+    if m:
+        return int(m.group(1)) * 60 + 30
+    m = re.fullmatch(r"(\d+)時間(\d{1,2})分", s)
+    if m:
+        return int(m.group(1)) * 60 + int(m.group(2))
+    m = re.fullmatch(r"(\d{1,4})分", s)
+    if m:
+        return int(m.group(1))
+    m = re.fullmatch(r"(\d{1,4})", s)
+    if m:
+        v = int(m.group(1))
+        if 1 <= v <= 720:
+            return v
+    if len(s) <= 28:
+        m = re.search(r"(\d+(?:\.\d+)?)時間", s)
+        if m:
+            return int(float(m.group(1)) * 60)
+        m = re.search(r"(\d{1,4})分", s)
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _coerce_task_minutes(raw) -> Optional[int]:
+    if raw is None:
+        return None
+    try:
+        v = int(float(raw))
+    except (TypeError, ValueError):
+        return None
+    if v < 1 or v > 24 * 60:
+        return None
+    return v
+
+
+def _notion_save_task(title: str, content: str, minutes: Optional[int], date_s: str, status: str = "未着手") -> dict:
+    """Tasks DB に保存。見積分・メモプロパティが無いDBでも段階的にフォールバック"""
+    props: dict = {
+        **_title_prop(title[:100]),
+        **_date_prop("日付", date_s),
+        "ステータス": {"select": {"name": status}},
+    }
+    if content:
+        props.update(_rich_text_prop("メモ", content[:2000]))
+    if minutes is not None:
+        props[NOTION_TASK_MINUTES_PROP] = {"number": float(minutes)}
+    while True:
+        try:
+            return _notion_post("/pages", {"parent": {"database_id": DB["Tasks"]}, "properties": props})
+        except Exception:
+            if NOTION_TASK_MINUTES_PROP in props:
+                del props[NOTION_TASK_MINUTES_PROP]
+                continue
+            if "メモ" in props:
+                del props["メモ"]
+                continue
+            if "ステータス" in props:
+                del props["ステータス"]
+                continue
+            raise
+
+
+def _handle_pending_task_reply(sid: str, text: str) -> Optional[dict]:
+    """保留中タスクに対する所要時間の返答。処理したら dict、スキップなら None"""
+    _ensure_session_pending_task(sid)
+    if sid not in CONVERSATIONS:
+        return None
+    pt = CONVERSATIONS[sid].get("pending_task")
+    if not pt:
+        return None
+    raw = text.strip().replace(" ", "").replace("　", "").lower()
+    if raw in ("やめ", "やめる", "やっぱ", "やっぱいい", "キャンセル", "いいや"):
+        CONVERSATIONS[sid]["pending_task"] = None
+        return {"intent": "task", "message": "かしこまりました。タスク登録は取りやめました。", "saved": False}
+    if any(k in raw for k in ("わからない", "さっぱり", "未定", "まだわから", "不明", "わからん")) and len(raw) < 28:
+        try:
+            _notion_save_task(
+                pt.get("title") or "タスク",
+                pt.get("content") or "",
+                None,
+                pt.get("date") or date.today().isoformat(),
+            )
+            CONVERSATIONS[sid]["pending_task"] = None
+            tit = (pt.get("title") or "")[:45]
+            return {
+                "intent": "task",
+                "message": f"承知しました。「{tit}」をタスクに登録しました（所要は未設定。後から分かり次第お知らせください）。",
+                "saved": True,
+            }
+        except Exception as e:
+            return {"intent": "task", "message": f"保存に失敗しました: {e}", "saved": False}
+    mins = _parse_duration_minutes(text)
+    if mins is None:
+        return None
+    try:
+        _notion_save_task(
+            pt.get("title") or "タスク",
+            pt.get("content") or "",
+            mins,
+            pt.get("date") or date.today().isoformat(),
+        )
+        CONVERSATIONS[sid]["pending_task"] = None
+        tit = (pt.get("title") or "")[:45]
+        return {
+            "intent": "task",
+            "message": f"「{tit}」を登録しました（見積もり: 約{_fmt_duration_mins(mins)}）。",
+            "saved": True,
+        }
+    except Exception as e:
+        return {"intent": "task", "message": f"保存に失敗しました: {e}", "saved": False}
 
 
 def _handle_sleep_bedtime(sid: str, text: str) -> dict:
@@ -710,7 +843,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-24b",
+        "version": "2026-03-24c",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -794,7 +927,8 @@ def _fetch_today() -> dict:
         name = title[0]["plain_text"] if title else "(無題)"
         status_prop = row["properties"].get("ステータス", {}).get("select")
         status = status_prop["name"] if status_prop else "未設定"
-        tasks.append({"title": name, "status": status})
+        est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
+        tasks.append({"title": name, "status": status, "minutes": est})
 
     result = {"date": today, "schedules": schedules, "tasks": tasks}
     if not schedules and not tasks:
@@ -839,7 +973,8 @@ def _fetch_upcoming(days: int = 7) -> dict:
         d = date_prop.get("start", "") if date_prop else ""
         status_prop = row["properties"].get("ステータス", {}).get("select")
         status = status_prop["name"] if status_prop else "未設定"
-        tasks.append({"title": name, "date": d, "status": status})
+        est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
+        tasks.append({"title": name, "date": d, "status": status, "minutes": est})
 
     return {"range": f"{start} ~ {end}", "schedules": schedules, "tasks": tasks}
 
@@ -853,8 +988,9 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 必ずJSON形式のみで返してください。他の文章は一切不要です。
 
 分類カテゴリ:
-- memo: 買い物・覚えておくこと・TODO・短いメモ
-- idea: アイデア・企画・思いついたこと
+- memo: 買い物・備忘・覚え書き・短いメモ（実行する「仕事タスク」ではないもの）
+- task: 仕事・作業として実行するTODO（企画書作成、返信、実装、修正、資料作成など）。NotionのTasks DBに入る
+- idea: アイデア・企画の種・思いつき（すぐやる作業ではない）
 - schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
 - profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」＋新情報
 - today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
@@ -874,12 +1010,17 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - 「もうやった」「終わった」「いらない」「消して」＋対象アイテム → done（titleに対象を入れる）
 - ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
 - today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
+- taskとmemo: 買い物・備忘はmemo。仕事の実行項目はtask。迷ったら短文はmemo、明確な作業はtask
+- taskでは、発言から所要時間（分）が読み取れるときだけ JSON の minutes に正の整数を入れる。無ければ minutes:null（システムが後で聞く）
 - 迷ったらanswerにする
 
 Few-shot例:
-"台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":""}}
-"RAGの動画修正、来週金曜締切" → {{"intent":"schedule","title":"RAG動画修正","date":"2025-04-18","content":"来週金曜締切"}}
-"Shadowっぽいアイデア" → {{"intent":"idea","title":"Shadow分身UI","content":"秘書感を出す","date":""}}
+"台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":"","minutes":null}}
+"RAGの動画修正、来週金曜締切" → {{"intent":"schedule","title":"RAG動画修正","date":"2025-04-18","content":"来週金曜締切","minutes":null}}
+"企画書を今日中に仕上げる" → {{"intent":"task","title":"企画書仕上げ","content":"","date":"","minutes":null}}
+"リクルートに返信する" → {{"intent":"task","title":"リクルート返信","content":"","date":"","minutes":null}}
+"デジハリの講義資料、2時間くらい" → {{"intent":"task","title":"デジハリ講義資料","content":"2時間程度","date":"","minutes":120}}
+"Shadowっぽいアイデア" → {{"intent":"idea","title":"Shadow分身UI","content":"秘書感を出す","date":"","minutes":null}}
 "覚えて: パーソル研修は毎月第2火曜" → {{"intent":"profile","title":"パーソル研修","content":"毎月第2火曜","date":"","category":"プロジェクト"}}
 "俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
@@ -904,7 +1045,7 @@ Few-shot例:
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
 
-出力: {{"intent":"...","title":"...","content":"...","date":"...","category":"..."}}\
+出力: {{"intent":"...","title":"...","content":"...","date":"...","category":"...","minutes":nullまたは整数}}\
 """
 
 
@@ -978,6 +1119,12 @@ def _classify_intent_fallback(message: str) -> dict:
     is_request = any(k in text for k in ["してください", "して", "まとめて", "教えて", "知ってる", "作って"])
     if not is_request and any(k in text for k in ["覚えて", "覚えといて", "俺の情報"]):
         return {"intent": "profile", "title": message, "content": "", "date": "", "category": "その他"}
+    tc = message.replace(" ", "").replace("　", "")
+    if len(tc) < 120 and re.search(
+        r"(返信|資料|企画書|仕上げ|対応|実装|修正|更新|タスク[:：]|やること[:：])",
+        tc,
+    ) and "バグ" not in text:
+        return {"intent": "task", "title": message.strip()[:200], "content": "", "date": "", "minutes": None}
     elif any(k in text for k in ["買", "メモ", "todo", "to do"]):
         return {"intent": "memo", "title": message, "content": "", "date": ""}
     elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
@@ -1153,7 +1300,8 @@ def _fetch_brain() -> dict:
             d = date_prop.get("start", "") if date_prop else ""
             status_prop = row["properties"].get("ステータス", {}).get("select")
             status = status_prop["name"] if status_prop else "未設定"
-            result.append({"title": name, "date": d, "status": status})
+            est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
+            result.append({"title": name, "date": d, "status": status, "minutes": est})
         return result
 
     def _q_ideas():
@@ -1285,11 +1433,17 @@ def think():
         tasks = brain.get("tasks", [])
         schedule = brain.get("schedule", [])
         if tasks:
-            lines.append("【今すぐやること】" + tasks[0]["title"])
+            t0 = tasks[0]
+            t0line = t0["title"]
+            if t0.get("minutes") is not None:
+                t0line += f"（約{int(t0['minutes'])}分）"
+            lines.append("【今すぐやること】" + t0line)
             if len(tasks) > 1:
                 lines.append("【今日中】")
                 for t in tasks[1:4]:
-                    lines.append(f"・{t['title']}（{t.get('status', '')}）")
+                    m = t.get("minutes")
+                    est = f"約{int(m)}分・" if m is not None else ""
+                    lines.append(f"・{t['title']}（{est}{t.get('status', '')}）")
         elif schedule:
             lines.append("【今すぐやること】" + schedule[0]["title"])
         else:
@@ -1329,13 +1483,22 @@ def chat(req: ChatRequest):
 
     _add_to_session(sid, "user", text)
 
+    # --- タスク登録の続き（所要時間の返答） ---
+    _ensure_session_pending_task(sid)
+    pending_task_resp = _handle_pending_task_reply(sid, text)
+    if pending_task_resp is not None:
+        pending_task_resp["session_id"] = sid
+        if pending_task_resp.get("message"):
+            _add_to_session(sid, "assistant", pending_task_resp["message"])
+        return pending_task_resp
+
     # --- Geminiでintent分類（会話履歴を含めて文脈判断） ---
     classified = _classify_intent_via_gemini(text, session_id=sid)
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
     KNOWN_INTENTS = {
-        "memo", "idea", "schedule", "profile", "done", "debug",
+        "memo", "idea", "task", "schedule", "profile", "done", "debug",
         "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         "today", "upcoming", "think", "answer", "unknown",
     }
@@ -1350,7 +1513,7 @@ def chat(req: ChatRequest):
         if msg:
             _add_to_session(sid, "assistant", msg)
         skip_learn = (
-            "profile", "debug", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
+            "profile", "debug", "task", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         )
         if intent not in skip_learn and GEMINI_API_KEY:
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
@@ -1379,6 +1542,43 @@ def chat(req: ChatRequest):
             return _respond({"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True})
         except Exception:
             return _respond({"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False})
+
+    # --- task（Tasks DB・見積分。未入力ならセッションに保留して所要時間を聞く） ---
+    if intent == "task":
+        title = (classified.get("title") or text[:120]).strip() or "タスク"
+        content = (classified.get("content") or "").strip()
+        d = classified.get("date") or date.today().isoformat()
+        if len(d) > 12:
+            d = d[:10]
+        minutes = _coerce_task_minutes(classified.get("minutes"))
+        if minutes is not None:
+            try:
+                _notion_save_task(title, content or text, minutes, d)
+                return _respond({
+                    "intent": "task",
+                    "message": f"タスクを登録しました: {title[:60]}（見積 約{_fmt_duration_mins(minutes)}）",
+                    "saved": True,
+                })
+            except Exception as e:
+                return _respond({"intent": "task", "message": f"タスクの登録に失敗しました: {e}", "saved": False})
+        if CONVERSATIONS[sid].get("pending_task"):
+            logger.info("[task] pending_task を上書きします")
+        CONVERSATIONS[sid]["pending_task"] = {
+            "title": title,
+            "content": content or text,
+            "date": d,
+        }
+        return _respond({
+            "intent": "task",
+            "message": (
+                f"「{title[:50]}」ですね。だいたい何分〜何時間ほどの見積もりでしょうか？"
+                "（例: 30分、1時間半）\n"
+                "分からなければ「わからない」でも登録できます。\n"
+                "やめるときは「やめ」とお伝えください。"
+            ),
+            "saved": False,
+            "needs_estimate": True,
+        })
 
     # --- schedule ---
     if intent == "schedule":

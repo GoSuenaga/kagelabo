@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.11';
+const VERSION = 'v0.12';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -116,6 +116,9 @@ function showWelcome() {
       📅 予定ボタン → 日時つきで保存<br>
       🧠 整理ボタン → タスクを整理<br>
       🐛 バグボタン → 不具合をNotionに記録<br>
+      ✅ 仕事タスク → Tasksに保存（所要時間が無いと聞き返します）<br>
+      💤 「おやすみ」「おはよう」→ 睡眠ログ<br>
+      🚪 「行ってきます」「ただいま」→ 健康メモ<br>
       📆 右上カレンダー → 今後の予定確認
     </div>
   `);
@@ -142,10 +145,20 @@ const BADGE = {
   memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶',
   done:'🗑️ 完了', debug:'🐛 バグ報告',
   sleep_bedtime:'💤 就寝', sleep_wake:'🌅 起床', health_go:'🚪 外出', health_back:'🏠 帰宅',
+  task:'✅ タスク',
 };
 
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
+
+  if (intent === 'task') {
+    const b = BADGE.task ? `<span class="badge-intent">${BADGE.task}</span><br>` : '';
+    const foot = saved === true
+      ? '<br><span class="badge-save">✓ Notion Tasks に記録しました</span>'
+      : '<br><span class="badge-save dim-save">※ 所要時間の入力待ち、または保存できませんでした</span>';
+    addMsg('kage', `${b}${esc(message||'')}${foot}`, saved === true ? 'saved' : 'warn');
+    return;
+  }
 
   if (['sleep_bedtime','sleep_wake','health_go','health_back'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
