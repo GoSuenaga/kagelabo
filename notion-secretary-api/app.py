@@ -573,8 +573,8 @@ def chat(req: ChatRequest):
 
     # --- memo ---
     if intent == "memo":
-        title = classified.get("title", text[:20])
-        content = classified.get("content", text)
+        title = classified.get("title") or text[:20]
+        content = classified.get("content") or text
         props = {**_title_prop(title)}
         props.update(_rich_text_prop("内容", content))
         try:
@@ -585,8 +585,8 @@ def chat(req: ChatRequest):
 
     # --- idea ---
     if intent == "idea":
-        title = classified.get("title", text[:20])
-        content = classified.get("content", text)
+        title = classified.get("title") or text[:20]
+        content = classified.get("content") or text
         props = {**_title_prop(title)}
         props.update(_rich_text_prop("内容", content))
         try:
@@ -597,9 +597,9 @@ def chat(req: ChatRequest):
 
     # --- schedule ---
     if intent == "schedule":
-        title = classified.get("title", text[:20])
-        d = classified.get("date", date.today().isoformat())
-        memo = classified.get("memo", "")
+        title = classified.get("title") or text[:20]
+        d = classified.get("date") or date.today().isoformat()
+        memo = classified.get("memo") or classified.get("content") or ""
         props = {**_title_prop(title), **_date_prop("日付", d)}
         if memo:
             props.update(_rich_text_prop("メモ", memo))
