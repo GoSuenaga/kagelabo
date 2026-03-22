@@ -1,0 +1,142 @@
+[
+  {
+    "id": 1,
+    "prompt": "A sleek smartphone floating in mid-air with holographic UI elements around it, futuristic dark background, product photography, dramatic lighting",
+    "headline": "未来を、手のひらに。",
+    "body": "次世代AIプロセッサ搭載。あなたの毎日を、もっとスマートに。",
+    "cta": "今すぐチェック"
+  },
+  {
+    "id": 2,
+    "prompt": "A young woman jogging in a vibrant city park at sunrise, wearing stylish athletic wear, motion blur, energetic mood, lifestyle photography",
+    "headline": "走り出す朝が変わる。",
+    "body": "軽量＆高反発ソール。プロが認めたランニングシューズ。",
+    "cta": "詳しくはこちら"
+  },
+  {
+    "id": 3,
+    "prompt": "Luxurious skincare bottles arranged on white marble with fresh green leaves and water droplets, clean beauty aesthetic, soft natural light",
+    "headline": "素肌が喜ぶ、本物のケア。",
+    "body": "98%天然由来成分。敏感肌にもやさしいスキンケアライン。",
+    "cta": "無料サンプルを試す"
+  },
+  {
+    "id": 4,
+    "prompt": "A cozy modern living room with warm lighting, a family watching a large OLED TV, minimalist Scandinavian interior design",
+    "headline": "家族の時間を、もっと鮮やかに。",
+    "body": "4K有機EL。映画館を超える没入感を、リビングに。",
+    "cta": "製品を見る"
+  },
+  {
+    "id": 5,
+    "prompt": "Overhead shot of a beautifully plated gourmet meal on a rustic wooden table, fresh ingredients scattered around, food photography, warm tones",
+    "headline": "おいしいは、届く時代。",
+    "body": "一流シェフ監修のミールキット。最短15分で本格ディナー。",
+    "cta": "メニューを見る"
+  },
+  {
+    "id": 6,
+    "prompt": "An electric vehicle driving on a scenic mountain road at golden hour, motion blur on wheels, cinematic wide angle, eco-friendly vibe",
+    "headline": "静かに、力強く。",
+    "body": "航続距離600km。環境にもドライバーにもやさしいEV。",
+    "cta": "試乗予約する"
+  },
+  {
+    "id": 7,
+    "prompt": "A creative workspace with dual monitors showing design software, plants, coffee cup, warm ambient lighting, top-down perspective",
+    "headline": "クリエイティブを加速する。",
+    "body": "M4チップ搭載。プロの制作環境を、デスクトップに。",
+    "cta": "スペックを確認"
+  },
+  {
+    "id": 8,
+    "prompt": "A confident businesswoman presenting to a team in a modern glass office, natural daylight, professional atmosphere, shallow depth of field",
+    "headline": "キャリアの次章を開く。",
+    "body": "ハイクラス転職支援。年収800万円以上の非公開求人多数。",
+    "cta": "無料相談する"
+  },
+  {
+    "id": 9,
+    "prompt": "Tropical beach resort with infinity pool overlooking turquoise ocean, palm trees, sunset sky, travel photography, paradise vibes",
+    "headline": "至福の休日を、あなたに。",
+    "body": "オールインクルーシブ。バリ島5つ星リゾートが今だけ40%OFF。",
+    "cta": "プランを見る"
+  },
+  {
+    "id": 10,
+    "prompt": "A child happily learning with a tablet device, colorful educational app interface visible, bright cheerful room, warm family atmosphere",
+    "headline": "遊びながら、伸びる力。",
+    "body": "AI個別最適化学習。お子さまの「できた！」を増やします。",
+    "cta": "2週間無料体験"
+  },
+  {
+    "id": 11,
+    "prompt": "Premium wireless earbuds on a reflective black surface with sound wave visualizations, minimalist product photography, dramatic blue accent lighting",
+    "headline": "音に、没入する。",
+    "body": "ノイズキャンセリング搭載。通勤も仕事も、あなただけの空間に。",
+    "cta": "購入する"
+  },
+  {
+    "id": 12,
+    "prompt": "A stylish couple enjoying craft cocktails at a rooftop bar with city skyline at twilight, bokeh city lights, lifestyle photography",
+    "headline": "特別な夜を、日常に。",
+    "body": "厳選されたクラフトカクテル定期便。毎月届く、小さな贅沢。",
+    "cta": "定期便を始める"
+  },
+  {
+    "id": 13,
+    "prompt": "A golden retriever running through a sunlit meadow with a happy owner, pet lifestyle photography, warm color grading, joyful energy",
+    "headline": "愛犬の健康、守れていますか？",
+    "body": "獣医師監修のプレミアムドッグフード。無添加・国産素材100%。",
+    "cta": "初回半額で試す"
+  },
+  {
+    "id": 14,
+    "prompt": "A futuristic smart home interior with voice-controlled lighting, robot vacuum, connected appliances, clean modern aesthetic, blue ambient glow",
+    "headline": "家が、あなたを理解する。",
+    "body": "スマートホームキット。声ひとつで照明・空調・セキュリティを操作。",
+    "cta": "導入ガイドを見る"
+  },
+  {
+    "id": 15,
+    "prompt": "Fresh organic vegetables and fruits arranged in a beautiful wooden crate, farmers market style, morning dew, vibrant colors, top-down shot",
+    "headline": "届いた瞬間、畑の香り。",
+    "body": "契約農家から直送。朝採れ有機野菜セットを毎週お届け。",
+    "cta": "お試しセットを注文"
+  },
+  {
+    "id": 16,
+    "prompt": "A person meditating on a mountain peak at sunrise, vast landscape below, ethereal clouds, spiritual peaceful atmosphere, wide angle",
+    "headline": "心を整える、5分間。",
+    "body": "AIガイド付きマインドフルネスアプリ。ストレスを数値で可視化。",
+    "cta": "アプリをダウンロード"
+  },
+  {
+    "id": 17,
+    "prompt": "A stylish leather bag and accessories flat lay on white background, premium craftsmanship details visible, luxury brand aesthetic, studio lighting",
+    "headline": "本物だけが持つ、佇まい。",
+    "body": "イタリア製フルグレインレザー。一生使える鞄を、あなたに。",
+    "cta": "コレクションを見る"
+  },
+  {
+    "id": 18,
+    "prompt": "Solar panels on a modern house rooftop with blue sky and green garden, sustainable living, architectural photography, clean energy concept",
+    "headline": "電気代、ゼロの暮らしへ。",
+    "body": "初期費用0円の太陽光リース。月々の電気代が実質無料に。",
+    "cta": "シミュレーションする"
+  },
+  {
+    "id": 19,
+    "prompt": "A diverse team celebrating success in a modern startup office, confetti, high-fives, genuine joy, candid photography, bright airy space",
+    "headline": "チームの力を、最大化する。",
+    "body": "プロジェクト管理からコミュニケーションまで。オールインワンSaaS。",
+    "cta": "30日間無料トライアル"
+  },
+  {
+    "id": 20,
+    "prompt": "A luxury watch on a dark textured surface with dramatic side lighting, precision engineering details visible, macro product photography",
+    "headline": "時を刻む、アート。",
+    "body": "スイスメイドムーブメント。300本限定の特別エディション。",
+    "cta": "限定モデルを予約"
+  }
+]

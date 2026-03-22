@@ -177,7 +177,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23a",
+        "version": "2026-03-23b",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -722,24 +722,20 @@ def chat(req: ChatRequest):
         result = think()
         return {"intent": "think", "message": result.get("message", ""), "saved": False}
 
-    # --- unknown: Notionデータ参照してGemini回答 ---
+    # --- answer: Notionデータ（Profile含む）を参照してGemini回答 ---
     try:
-        today_data = _fetch_today()
-        upcoming_data = _fetch_upcoming(7)
+        brain = _fetch_brain()
     except Exception:
-        today_data = {"date": date.today().isoformat(), "schedules": [], "tasks": []}
-        upcoming_data = {"range": "", "schedules": [], "tasks": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
 
     context = (
-        f"## 今日（{today_data['date']}）\n"
-        f"予定: {json.dumps(today_data['schedules'], ensure_ascii=False)}\n"
-        f"タスク: {json.dumps(today_data['tasks'], ensure_ascii=False)}\n\n"
-        f"## 今週（{upcoming_data.get('range', '')}）\n"
-        f"予定: {json.dumps(upcoming_data['schedules'], ensure_ascii=False)}\n"
-        f"タスク: {json.dumps(upcoming_data['tasks'], ensure_ascii=False)}"
+        f"## ボスのプロフィール・記憶\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
+        f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
+        f"## 今日の予定・タスク\n{json.dumps(brain.get('schedule', []), ensure_ascii=False)}\n"
+        f"{json.dumps(brain.get('tasks', []), ensure_ascii=False)}"
     )
 
-    user_prompt = f"以下はNotionのデータです:\n\n{context}\n\n質問: {text}"
+    user_prompt = f"以下はNotionに保存されているボスの情報です:\n\n{context}\n\n質問: {text}"
 
     # Gemini リクエスト組み立て
     parts = [{"text": user_prompt}]
@@ -759,18 +755,7 @@ def chat(req: ChatRequest):
         gemini_resp.raise_for_status()
         answer = gemini_resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     except Exception:
-        # エラー時はルールベースにフォールバック
-        schedules = today_data.get("schedules", [])
-        tasks = today_data.get("tasks", [])
-        if schedules or tasks:
-            lines = ["今日の予定/タスク:"]
-            for s in schedules:
-                lines.append(f"・{s['title']}")
-            for t in tasks:
-                lines.append(f"・{t['title']}（{t['status']}）")
-            answer = "\n".join(lines)
-        else:
-            answer = "まだNotionに何もない。まずはタスクか予定を登録しろ。"
+        answer = "ボス、申し訳ありません。現在回答を生成できませんでした。"
 
     return {"intent": "answer", "message": answer, "saved": False}
 

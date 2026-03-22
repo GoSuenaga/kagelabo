@@ -1,5 +1,6 @@
 # Secrets
 .env
+credentials.json
 
 # OS
 .DS_Store
@@ -13,3 +14,5 @@ venv/
 
 # Claude Code
 .claude/
+oauth_credentials.json
+token.json
