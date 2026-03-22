@@ -18,7 +18,7 @@
   --yellow:   #fbbf24;
   --red:      #f87171;
   --hdr:      52px;
-  --ftr:      110px;
+  --ftr:      130px;
   --font:     -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic UI", sans-serif;
 }
 
@@ -215,7 +215,7 @@ html, body {
   background: rgba(13,13,13,0.97);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);
-  padding-bottom: env(safe-area-inset-bottom, 0);
+  padding-bottom: calc(14px + env(safe-area-inset-bottom, 8px));
   z-index: 100;
 }
 
@@ -238,7 +238,7 @@ html, body {
 
 .input-row {
   display: flex; align-items: flex-end; gap: 8px;
-  padding: 8px 12px 10px;
+  padding: 8px 14px 4px;
 }
 
 textarea#msgInput {
@@ -426,7 +426,7 @@ textarea#msgInput::placeholder { color: var(--muted); font-size: 13px; }
 /* ── Input icon buttons (mic, image) ──────────────── */
 .input-icon-btn {
   background: none; border: none; color: rgba(255,255,255,0.5);
-  width: 36px; height: 36px; padding: 6px; cursor: pointer;
+  width: 40px; height: 40px; min-width: 40px; padding: 8px; cursor: pointer;
   flex-shrink: 0; display: flex; align-items: center; justify-content: center;
   border-radius: 50%; transition: all .15s;
 }
