@@ -487,6 +487,30 @@ msgInput.addEventListener('keydown', e => {
 });
 btnSend.addEventListener('click', handleSend);
 
+// ── Copy chat log ─────────────────────────────────
+document.getElementById('btnCopyLog').addEventListener('click', () => {
+  const rows = chatArea.querySelectorAll('.row');
+  const lines = [];
+  rows.forEach(row => {
+    const isUser = row.classList.contains('user');
+    const bubble = row.querySelector('.bubble');
+    if (!bubble) return;
+    const text = bubble.innerText.trim();
+    if (!text) return;
+    lines.push(isUser ? `ボス: ${text}` : `影: ${text}`);
+  });
+  const log = `--- KAGE会話ログ ${new Date().toLocaleString('ja-JP')} ---\n${lines.join('\n')}\n--- END ---`;
+  navigator.clipboard.writeText(log).then(() => {
+    addMsg('kage', 'ボス、会話ログをクリップボードにコピーしました。');
+  }).catch(() => {
+    const ta = document.createElement('textarea');
+    ta.value = log; document.body.appendChild(ta);
+    ta.select(); document.execCommand('copy');
+    document.body.removeChild(ta);
+    addMsg('kage', 'ボス、会話ログをコピーしました。');
+  });
+});
+
 // ── Morning briefing ──────────────────────────────
 async function showMorningBriefing() {
   const today = todayStr();
