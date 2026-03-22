@@ -177,7 +177,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23b",
+        "version": "2026-03-23c",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -322,11 +322,16 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - memo: 買い物・覚えておくこと・TODO・短いメモ
 - idea: アイデア・企画・思いついたこと
 - schedule: 締切・日付・予定・〜までに
-- profile: 覚えて・俺の情報・プロフィール・自己紹介に使う情報
+- profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」が含まれるか、「俺の〇〇は△△」のように新情報を伝えている場合
 - today: 今日・今日の予定
 - upcoming: 今後・来週・スケジュール確認
 - think: 整理して・優先順位・何から・頭の中
-- answer: それ以外の質問・相談
+- answer: 質問・相談・依頼・まとめて・教えて・〜してください。既存の情報を使って何かを頼む場合はすべてanswer
+
+重要な判定ルール:
+- 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer（依頼・質問）
+- 「覚えて」「覚えといて」＋新情報 → profile（保存）
+- 迷ったらanswerにする
 
 Few-shot例:
 "台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":""}}
@@ -336,6 +341,9 @@ Few-shot例:
 "俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
+"経歴を300文字でまとめて" → {{"intent":"answer","title":"","content":"","date":""}}
+"俺の好きな食べ物知ってる？" → {{"intent":"answer","title":"","content":"","date":""}}
+"自己紹介文を作ってください" → {{"intent":"answer","title":"","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
@@ -365,7 +373,8 @@ def _summarize_via_gemini(instruction: str, data: str) -> str:
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
     text = message.lower()
-    if any(k in text for k in ["覚えて", "覚えといて", "プロフィール", "俺の情報"]):
+    is_request = any(k in text for k in ["してください", "して", "まとめて", "教えて", "知ってる", "作って"])
+    if not is_request and any(k in text for k in ["覚えて", "覚えといて", "俺の情報"]):
         return {"intent": "profile", "title": message, "content": "", "date": "", "category": "その他"}
     elif any(k in text for k in ["買", "メモ", "todo", "to do"]):
         return {"intent": "memo", "title": message, "content": "", "date": ""}
