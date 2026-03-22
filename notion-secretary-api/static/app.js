@@ -1,8 +1,10 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.5';
+const VERSION = 'v0.6';
 const BUILD   = '2026-03-23';
+
+let sessionId = sessionStorage.getItem('kage_session') || null;
 
 // DOM
 const chatArea      = document.getElementById('chatArea');
@@ -118,12 +120,12 @@ async function get(path) {
 }
 
 // ── Response renderer ─────────────────────────────
-const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定' };
+const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶' };
 
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
 
-  if (saved === true || ['memo','idea','task','schedule'].includes(intent)) {
+  if (saved === true || ['memo','idea','task','schedule','profile'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
     addMsg('kage', `${b}${esc(message||'保存しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`, 'saved');
     return;
@@ -183,7 +185,13 @@ async function handleSend() {
   msgInput.value = ''; autoResize();
   showTyping();
   try {
-    const data = await post('/chat',{message:text});
+    const body = {message: text};
+    if (sessionId) body.session_id = sessionId;
+    const data = await post('/chat', body);
+    if (data.session_id) {
+      sessionId = data.session_id;
+      sessionStorage.setItem('kage_session', sessionId);
+    }
     hideTyping();
     renderResponse(data, text);
   } catch(e) {
@@ -388,6 +396,42 @@ msgInput.addEventListener('keydown', e => {
 });
 btnSend.addEventListener('click', handleSend);
 
+// ── Morning briefing ──────────────────────────────
+async function showMorningBriefing() {
+  const today = todayStr();
+  const lastBriefing = localStorage.getItem('kage_morning');
+  if (lastBriefing === today) return;
+
+  showTyping();
+  try {
+    const data = await get('/morning');
+    hideTyping();
+    if (data.message) {
+      const sections = data.message.split(/(?=【)/);
+      let html = '';
+      for (const section of sections) {
+        const trimmed = section.trim();
+        if (!trimmed) continue;
+        const match = trimmed.match(/^【(.+?)】(.*)$/s);
+        if (match) {
+          html += '<div class="think-section-title">' + esc(match[1]) + '</div>';
+          const lines = match[2].trim().split('\n').filter(l => l.trim());
+          for (const line of lines) {
+            html += '<div class="think-item">' + esc(line) + '</div>';
+          }
+        } else {
+          html += '<div class="think-item">' + esc(trimmed) + '</div>';
+        }
+      }
+      addMsg('kage', '<div class="think-section">' + (html || esc(data.message)) + '</div>');
+    }
+    localStorage.setItem('kage_morning', today);
+  } catch(e) {
+    hideTyping();
+  }
+}
+
 // ── Init ──────────────────────────────────────────
 if (headerDate) headerDate.textContent = fmtDateHeader();
 showWelcome();
+showMorningBriefing();

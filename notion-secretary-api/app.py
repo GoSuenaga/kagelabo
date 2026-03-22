@@ -7,6 +7,9 @@ import json
 import logging
 import os
 import re
+import threading
+import time
+import uuid
 from datetime import date, timedelta
 from pathlib import Path
 from typing import Optional
@@ -49,6 +52,49 @@ DB = {
 
 BASE = "https://api.notion.com/v1"
 
+# ---------------------------------------------------------------------------
+# 会話記憶（インメモリ セッション管理）
+# ---------------------------------------------------------------------------
+CONVERSATIONS: dict = {}
+MAX_HISTORY = 20
+SESSION_TTL = 86400  # 24h
+
+
+def _get_session(session_id: Optional[str]) -> tuple:
+    now = time.time()
+    expired = [k for k, v in CONVERSATIONS.items() if now - v["ts"] > SESSION_TTL]
+    for k in expired:
+        del CONVERSATIONS[k]
+    if session_id and session_id in CONVERSATIONS:
+        CONVERSATIONS[session_id]["ts"] = now
+        return session_id, CONVERSATIONS[session_id]["msgs"]
+    sid = session_id or str(uuid.uuid4())
+    CONVERSATIONS[sid] = {"msgs": [], "ts": now}
+    return sid, CONVERSATIONS[sid]["msgs"]
+
+
+def _add_to_session(sid: str, role: str, content: str):
+    if sid not in CONVERSATIONS:
+        return
+    msgs = CONVERSATIONS[sid]["msgs"]
+    msgs.append({"role": role, "content": content})
+    if len(msgs) > MAX_HISTORY * 2:
+        msgs[:] = msgs[-MAX_HISTORY:]
+
+
+def _build_history_text(sid: str) -> str:
+    if sid not in CONVERSATIONS:
+        return ""
+    msgs = CONVERSATIONS[sid]["msgs"][-MAX_HISTORY:]
+    if not msgs:
+        return ""
+    lines = ["## 直近の会話履歴"]
+    for m in msgs:
+        prefix = "ボス" if m["role"] == "user" else "影"
+        lines.append(f"{prefix}: {m['content'][:200]}")
+    return "\n".join(lines)
+
+
 _profile_path = Path(__file__).parent / "boss_profile.md"
 BOSS_PROFILE = _profile_path.read_text(encoding="utf-8") if _profile_path.exists() else "（プロフィール未設定）"
 logger.info("[init] boss_profile.md loaded: %d chars", len(BOSS_PROFILE))
@@ -61,11 +107,17 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 絶対ルール：
 - 「〜しろ」「〜やれ」「〜だぞ」等の命令口調は厳禁
 - ユーザーを必ず「ボス」と呼ぶ
-- 1〜2行で端的に返す。長文禁止
 - 丁寧だが短い。「〜です」「〜しましょう」「〜ですね」止め
 - ボスの経歴・スキル・状況を踏まえた的確な助言をする
 - 優先度が高いものだけ伝える
-- データなしなら「ボス、まだ登録がありません」\
+- データなしなら「ボス、まだ登録がありません」
+- 会話履歴がある場合、文脈を踏まえて返答する。「さっき」「それ」等の指示語を正しく解決する
+
+文書作成の依頼時：
+- 「まとめて」「書いて」「作って」等の依頼にはProfile DBの情報をフル活用する
+- 指定された文字数・形式に従う
+- ボスの視点で、正確な事実に基づいて作成する
+- 文書作成時は長文OK（通常の回答は短く）\
 """
 
 THINK_SYSTEM_PROMPT = f"""\
@@ -94,11 +146,40 @@ THINK_SYSTEM_PROMPT = f"""\
 ・〇〇
 ・〇〇
 
+【リマインド】
+・〇〇（3日以内の締切・返済日・引き落とし等。なければ省略）
+
 【アイデアメモ】
 ・〇〇（あれば1件、なければ省略）
 
 【影より】
 （「ボス、」で始まる丁寧なひとこと。例：「ボス、本日もお任せください。」）\
+"""
+
+MORNING_SYSTEM_PROMPT = f"""\
+あなたはGo_KAGE — ボス専属のAI秘書「影」。朝のブリーフィングを行います。
+
+{BOSS_PROFILE}
+
+絶対ルール：
+- 「〜しろ」「〜やれ」「〜だぞ」等の命令口調は厳禁
+- ボスを敬う丁寧な秘書として振る舞う
+- 簡潔に。前置き不要
+
+フォーマット：
+
+ボス、おはようございます。
+
+【本日の予定】
+・〇〇
+・〇〇
+（なければ「本日の予定はありません」）
+
+【直近のリマインド】
+・〇〇（3日以内の締切・返済日・引き落とし等。なければ省略）
+
+【ひとこと】
+（ボスの状況を踏まえた短い一言。天気・体調への気遣いなど）\
 """
 
 app = FastAPI(title="Notion Secretary API", version="1.0.0")
@@ -177,7 +258,7 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23c",
+        "version": "2026-03-23d",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
@@ -350,6 +431,44 @@ Few-shot例:
 
 出力: {{"intent":"...","title":"...","content":"...","date":"...","category":"..."}}\
 """
+
+
+def _auto_learn_bg(text: str):
+    """バックグラウンドで会話から事実を抽出し、Profile DBに自動保存"""
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        prompt = (
+            "以下のユーザー発言に、この人物の個人情報・好み・習慣・経歴・仕事に関する"
+            "新しい事実が含まれていますか？\n"
+            "含まれている場合のみJSON配列で返してください。\n"
+            "含まれていなければ空配列[]を返してください。\n"
+            "質問・依頼・挨拶・感想だけの発言は空配列にしてください。\n\n"
+            f'ユーザー発言: "{text}"\n\n'
+            '出力例: [{"title":"好きな食べ物","content":"明太子","category":"プライベート"}]\n'
+            "出力: JSON配列のみ"
+        )
+        resp = requests.post(gemini_url, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {"response_mime_type": "application/json", "temperature": 0.1},
+        }, timeout=10)
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        facts = json.loads(raw)
+        if not isinstance(facts, list):
+            return
+        for fact in facts:
+            if not isinstance(fact, dict) or not fact.get("title"):
+                continue
+            props = {**_title_prop(fact["title"])}
+            props.update(_rich_text_prop("内容", fact.get("content", "")))
+            props["カテゴリ"] = {"select": {"name": fact.get("category", "その他")}}
+            _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
+            logger.info("[auto_learn] Saved: %s → %s", fact["title"], fact.get("content", ""))
+    except Exception as e:
+        logger.error("[auto_learn] Failed: %s", e)
 
 
 def _summarize_via_gemini(instruction: str, data: str) -> str:
@@ -615,6 +734,7 @@ def think():
 
 class ChatRequest(BaseModel):
     message: str
+    session_id: Optional[str] = None
     image: Optional[str] = None      # base64エンコード画像
     mime_type: Optional[str] = None   # image/jpeg, image/png 等
 
@@ -624,17 +744,19 @@ def chat(req: ChatRequest):
     """
     メッセージを受け取り、Geminiでintent分類→
     保存系ならNotionに保存、today/upcoming/thinkは該当機能を呼び出し、
-    unknownならNotionデータを参照してGemini回答を返す。
-    画像が添付されている場合はGeminiのマルチモーダルで処理。
+    answerならNotionデータ+会話履歴を参照してGemini回答を返す。
     """
     text = req.message.strip()
+    sid, _ = _get_session(req.session_id)
 
     if not GEMINI_API_KEY:
         return {
-            "intent": "unknown",
+            "intent": "unknown", "session_id": sid,
             "message": "APIキーが未設定です（GEMINI_API_KEY を設定してください）",
             "saved": False,
         }
+
+    _add_to_session(sid, "user", text)
 
     # --- Geminiでintent分類 ---
     classified = _classify_intent_via_gemini(text)
@@ -646,6 +768,16 @@ def chat(req: ChatRequest):
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
         intent = "answer"
 
+    def _respond(resp: dict) -> dict:
+        """共通レスポンス: session_id付与 + 会話履歴に追加 + 自動学習トリガー"""
+        resp["session_id"] = sid
+        msg = resp.get("message", "")
+        if msg:
+            _add_to_session(sid, "assistant", msg)
+        if intent not in ("profile",) and GEMINI_API_KEY:
+            threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
+        return resp
+
     # --- memo ---
     if intent == "memo":
         title = classified.get("title") or text[:20]
@@ -654,9 +786,9 @@ def chat(req: ChatRequest):
         props.update(_rich_text_prop("内容", content))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
-            return {"intent": "memo", "message": f"メモを保存しました: {title}", "saved": True}
+            return _respond({"intent": "memo", "message": f"メモを保存しました: {title}", "saved": True})
         except Exception:
-            return {"intent": "memo", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+            return _respond({"intent": "memo", "message": f"Notion保存に失敗しました: {title}", "saved": False})
 
     # --- idea ---
     if intent == "idea":
@@ -666,9 +798,9 @@ def chat(req: ChatRequest):
         props.update(_rich_text_prop("内容", content))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
-            return {"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True}
+            return _respond({"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True})
         except Exception:
-            return {"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+            return _respond({"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False})
 
     # --- schedule ---
     if intent == "schedule":
@@ -680,9 +812,9 @@ def chat(req: ChatRequest):
             props.update(_rich_text_prop("メモ", memo))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
-            return {"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True}
+            return _respond({"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True})
         except Exception:
-            return {"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False}
+            return _respond({"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False})
 
     # --- profile ---
     if intent == "profile":
@@ -694,48 +826,50 @@ def chat(req: ChatRequest):
         props["カテゴリ"] = {"select": {"name": category}}
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
-            return {"intent": "profile", "message": f"ボス、覚えました: {title}", "saved": True}
+            return _respond({"intent": "profile", "message": f"ボス、覚えました: {title}", "saved": True})
         except Exception:
-            return {"intent": "profile", "message": f"ボス、保存に失敗しました: {title}", "saved": False}
+            return _respond({"intent": "profile", "message": f"ボス、保存に失敗しました: {title}", "saved": False})
 
     # --- today ---
     if intent == "today":
         try:
             data = _fetch_today()
             if not data.get("schedules") and not data.get("tasks"):
-                return {"intent": "today", "message": "ボス、今日の予定・タスクはまだ登録がありません。", "saved": False}
+                return _respond({"intent": "today", "message": "ボス、今日の予定・タスクはまだ登録がありません。", "saved": False})
             answer = _summarize_via_gemini(
                 f"今日（{data['date']}）のNotionデータです。ボスに今日の予定を簡潔に伝えてください。",
                 json.dumps(data, ensure_ascii=False),
             )
-            return {"intent": "today", "message": answer, "saved": False}
+            return _respond({"intent": "today", "message": answer, "saved": False})
         except Exception:
-            return {"intent": "today", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False}
+            return _respond({"intent": "today", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False})
 
     # --- upcoming ---
     if intent == "upcoming":
         try:
             data = _fetch_upcoming(7)
             if not data.get("schedules") and not data.get("tasks"):
-                return {"intent": "upcoming", "message": "ボス、今週の予定・タスクはまだ登録がありません。", "saved": False}
+                return _respond({"intent": "upcoming", "message": "ボス、今週の予定・タスクはまだ登録がありません。", "saved": False})
             answer = _summarize_via_gemini(
                 f"今週（{data['range']}）のNotionデータです。ボスに今週の予定を簡潔に伝えてください。",
                 json.dumps(data, ensure_ascii=False),
             )
-            return {"intent": "upcoming", "message": answer, "saved": False}
+            return _respond({"intent": "upcoming", "message": answer, "saved": False})
         except Exception:
-            return {"intent": "upcoming", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False}
+            return _respond({"intent": "upcoming", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False})
 
     # --- think ---
     if intent == "think":
         result = think()
-        return {"intent": "think", "message": result.get("message", ""), "saved": False}
+        return _respond({"intent": "think", "message": result.get("message", ""), "saved": False})
 
-    # --- answer: Notionデータ（Profile含む）を参照してGemini回答 ---
+    # --- answer: Notionデータ+会話履歴を参照してGemini回答 ---
     try:
         brain = _fetch_brain()
     except Exception:
         brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+
+    history_text = _build_history_text(sid)
 
     context = (
         f"## ボスのプロフィール・記憶\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
@@ -744,9 +878,11 @@ def chat(req: ChatRequest):
         f"{json.dumps(brain.get('tasks', []), ensure_ascii=False)}"
     )
 
-    user_prompt = f"以下はNotionに保存されているボスの情報です:\n\n{context}\n\n質問: {text}"
+    if history_text:
+        context = f"{history_text}\n\n{context}"
 
-    # Gemini リクエスト組み立て
+    user_prompt = f"以下はNotionに保存されているボスの情報と会話履歴です:\n\n{context}\n\nボスの発言: {text}"
+
     parts = [{"text": user_prompt}]
     if req.image:
         mime = req.mime_type or "image/jpeg"
@@ -766,7 +902,78 @@ def chat(req: ChatRequest):
     except Exception:
         answer = "ボス、申し訳ありません。現在回答を生成できませんでした。"
 
-    return {"intent": "answer", "message": answer, "saved": False}
+    return _respond({"intent": "answer", "message": answer, "saved": False})
+
+
+# ---------------------------------------------------------------------------
+# GET /morning — 朝のブリーフィング
+# ---------------------------------------------------------------------------
+
+@app.get("/morning")
+def morning():
+    """朝のブリーフィング: 今日の予定+リマインド+ひとこと"""
+    if not GEMINI_API_KEY:
+        return {"message": "APIキーが未設定です"}
+
+    try:
+        brain = _fetch_brain()
+    except Exception:
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+
+    today_str = date.today().isoformat()
+    context = (
+        f"今日の日付: {today_str}\n\n"
+        f"## ボスのプロフィール\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
+        f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}\n\n"
+        f"## タスク\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
+        f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}"
+    )
+
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(gemini_url, json={
+            "system_instruction": {"parts": [{"text": MORNING_SYSTEM_PROMPT}]},
+            "contents": [{"parts": [{"text": f"以下のNotionデータをもとに朝のブリーフィングをしてください:\n\n{context}"}]}],
+        }, timeout=30)
+        resp.raise_for_status()
+        answer = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    except Exception:
+        answer = "ボス、おはようございます。本日のブリーフィングを生成できませんでした。"
+
+    return {"message": answer}
+
+
+# ---------------------------------------------------------------------------
+# GET /reminders — 直近のリマインド
+# ---------------------------------------------------------------------------
+
+@app.get("/reminders")
+def reminders(days: int = 3):
+    """直近N日以内の予定・締切をリマインドとして返す"""
+    start = date.today().isoformat()
+    end = (date.today() + timedelta(days=days)).isoformat()
+
+    try:
+        schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
+            "filter": {"and": [
+                {"property": "日付", "date": {"on_or_after": start}},
+                {"property": "日付", "date": {"on_or_before": end}},
+            ]},
+            "sorts": [{"property": "日付", "direction": "ascending"}],
+        })
+        items = []
+        for row in schedule_data.get("results", []):
+            title = row["properties"]["名前"]["title"]
+            name = title[0]["plain_text"] if title else "(無題)"
+            date_prop = row["properties"].get("日付", {}).get("date", {})
+            d = date_prop.get("start", "") if date_prop else ""
+            items.append({"title": name, "date": d})
+        return {"range": f"{start} ~ {end}", "items": items, "count": len(items)}
+    except Exception:
+        return {"range": f"{start} ~ {end}", "items": [], "count": 0}
 
 
 # ---------------------------------------------------------------------------
