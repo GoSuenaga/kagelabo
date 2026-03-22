@@ -222,6 +222,8 @@ html, body {
   vertical-align: middle;
 }
 
+.badge-save.dim-save { opacity: 0.7; font-size: 11px; }
+
 /* think result */
 .think-section {
   margin-top: 8px;

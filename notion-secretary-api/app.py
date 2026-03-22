@@ -52,6 +52,8 @@ DB = {
     "Profile":  os.environ.get("NOTION_DB_PROFILE",   "32bc70f7-0203-81d9-8ecf-e00a9f17562f"),
     "ChatLog":  os.environ.get("NOTION_DB_CHATLOG",  "32bc70f7-0203-8178-bbf0-caf5888cba22"),
     "Debug":    os.environ.get("NOTION_DB_DEBUG",    "32bc70f7-0203-817e-8310-d3f87d3d8b10"),
+    # 睡眠ログ（未設定ならセッション内だけで就寝→起床を保持）create_sleep_database.py で作成
+    "Sleep":    os.environ.get("NOTION_DB_SLEEP", ""),
 }
 
 BASE = "https://api.notion.com/v1"
@@ -124,7 +126,7 @@ def _get_session(session_id: Optional[str]) -> tuple:
         msgs = _load_session_from_notion(session_id)
     else:
         msgs = []
-    CONVERSATIONS[sid] = {"msgs": msgs, "ts": now, "count": 0, "page_id": None}
+    CONVERSATIONS[sid] = {"msgs": msgs, "ts": now, "count": 0, "page_id": None, "bedtime_iso": None}
     return sid, msgs
 
 
@@ -283,6 +285,7 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 - データなしなら「まだ登録がありません」
 - 会話履歴がある場合、文脈を踏まえて返答する。「さっき」「それ」等の指示語を正しく解決する
 - 「今日は何月何日」「今何時」「曜日は」等の質問には、メッセージ先頭の【現在の実日時】ブロックの値だけを答える。それ以外の年月日・時刻を出してはいけない
+- 睡眠ログのデータがあるとき、無理に触れなくてよいが、体調・ペースの相談ではさりげなく活かしてよい
 
 文書作成の依頼時：
 - 「まとめて」「書いて」「作って」等の依頼にはProfile DBの情報をフル活用する
@@ -417,6 +420,233 @@ def _date_prop(key: str, date_str: str) -> dict:
     return {key: {"date": {"start": date_str}}}
 
 
+def _number_prop(key: str, val: float) -> dict:
+    return {key: {"number": val}}
+
+
+def _sleep_db_configured() -> bool:
+    return bool((DB.get("Sleep") or "").strip())
+
+
+def _iso_now_sleep() -> str:
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+    except Exception:
+        tz = ZoneInfo("Asia/Tokyo")
+    return datetime.now(tz).isoformat(timespec="seconds")
+
+
+def _fmt_duration_mins(mins: int) -> str:
+    if mins <= 0:
+        return "0分"
+    h, mm = divmod(mins, 60)
+    if h and mm:
+        return f"{h}時間{mm}分"
+    if h:
+        return f"{h}時間"
+    return f"{mm}分"
+
+
+def _minutes_between_sleep(start_iso: str, end_iso: str) -> int:
+    try:
+        a = datetime.fromisoformat(start_iso.replace("Z", "+00:00"))
+        b = datetime.fromisoformat(end_iso.replace("Z", "+00:00"))
+    except ValueError:
+        return 0
+    if b <= a:
+        return 0
+    return int((b - a).total_seconds() // 60)
+
+
+def _sleep_latest_open() -> Optional[dict]:
+    """起床が未入力の最新1件"""
+    if not _sleep_db_configured():
+        return None
+    try:
+        data = _notion_post(f"/databases/{DB['Sleep']}/query", {
+            "filter": {"property": "起床", "date": {"is_empty": True}},
+            "sorts": [{"property": "就寝", "direction": "descending"}],
+            "page_size": 1,
+        })
+        rows = data.get("results", [])
+        return rows[0] if rows else None
+    except Exception as e:
+        logger.error("[sleep] open query failed: %s", e)
+        return None
+
+
+def _ensure_session_bedtime(sid: str) -> None:
+    if sid in CONVERSATIONS and "bedtime_iso" not in CONVERSATIONS[sid]:
+        CONVERSATIONS[sid]["bedtime_iso"] = None
+
+
+def _handle_sleep_bedtime(sid: str, text: str) -> dict:
+    _ensure_session_bedtime(sid)
+    now_iso = _iso_now_sleep()
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+    except Exception:
+        tz = ZoneInfo("Asia/Tokyo")
+    label = datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+
+    if _sleep_db_configured():
+        try:
+            open_row = _sleep_latest_open()
+            if open_row:
+                pid = open_row["id"]
+                _notion_patch(f"/pages/{pid}", {"properties": {"就寝": {"date": {"start": now_iso}}}})
+                return {
+                    "intent": "sleep_bedtime",
+                    "message": "就寝時刻を更新しました。よいお眠りを。",
+                    "saved": True,
+                }
+            title = f"睡眠 {label}"
+            props = {
+                **_title_prop(title[:100]),
+                **_date_prop("就寝", now_iso),
+                **_rich_text_prop("メモ", text[:1800]),
+            }
+            _notion_post("/pages", {"parent": {"database_id": DB["Sleep"].strip()}, "properties": props})
+            if sid in CONVERSATIONS:
+                CONVERSATIONS[sid]["bedtime_iso"] = None
+            return {
+                "intent": "sleep_bedtime",
+                "message": "就寝を記録しました。おやすみなさいませ。",
+                "saved": True,
+            }
+        except Exception as e:
+            logger.error("[sleep] bedtime notion error: %s", e)
+            if sid in CONVERSATIONS:
+                CONVERSATIONS[sid]["bedtime_iso"] = now_iso
+            return {
+                "intent": "sleep_bedtime",
+                "message": f"Notionに書き込めなかったため、この端末のセッションに就寝時刻だけ保存しました。睡眠DBを確認してください。（{e}）",
+                "saved": False,
+            }
+
+    if sid in CONVERSATIONS:
+        CONVERSATIONS[sid]["bedtime_iso"] = now_iso
+    return {
+        "intent": "sleep_bedtime",
+        "message": "就寝を記録しました（睡眠DB未設定のため、このブラウザのセッションのみ）。Notionに残すには NOTION_DB_SLEEP を設定してください。",
+        "saved": False,
+    }
+
+
+def _handle_sleep_wake(sid: str, text: str) -> dict:
+    _ensure_session_bedtime(sid)
+    now_iso = _iso_now_sleep()
+    sess_start = CONVERSATIONS.get(sid, {}).get("bedtime_iso") if sid in CONVERSATIONS else None
+
+    def _reply(msg: str, saved: bool) -> dict:
+        return {"intent": "sleep_wake", "message": msg, "saved": saved}
+
+    start_iso: Optional[str] = None
+    page_id: Optional[str] = None
+
+    if _sleep_db_configured():
+        try:
+            open_row = _sleep_latest_open()
+            if open_row:
+                page_id = open_row["id"]
+                dp = open_row["properties"].get("就寝", {}).get("date") or {}
+                start_iso = dp.get("start")
+            if not start_iso and sess_start:
+                start_iso = sess_start
+            if not start_iso:
+                return _reply(
+                    "就寝の記録がまだありません。寝る前に「おやすみ」と声をかけていただくと、起床時に睡眠時間をお伝えできます。",
+                    False,
+                )
+
+            mins = _minutes_between_sleep(start_iso, now_iso)
+            if mins < 5:
+                return _reply("まだ数分しか経っていません。仮眠でしたか？", False)
+
+            memo_line = f"約{_fmt_duration_mins(mins)}。{text[:200]}"
+            if page_id:
+                _notion_patch(f"/pages/{page_id}", {
+                    "properties": {
+                        "起床": {"date": {"start": now_iso}},
+                        **_number_prop("睡眠分", float(mins)),
+                        **_rich_text_prop("メモ", memo_line[:2000]),
+                    },
+                })
+            else:
+                tit = f"睡眠 {start_iso[:16]}〜"
+                props = {
+                    **_title_prop(tit[:100]),
+                    **_date_prop("就寝", start_iso),
+                    **_date_prop("起床", now_iso),
+                    **_number_prop("睡眠分", float(mins)),
+                    **_rich_text_prop("メモ", memo_line[:2000]),
+                }
+                _notion_post("/pages", {"parent": {"database_id": DB["Sleep"].strip()}, "properties": props})
+
+            if sid in CONVERSATIONS:
+                CONVERSATIONS[sid]["bedtime_iso"] = None
+
+            note = ""
+            if mins < 180:
+                note = "（やや短めの睡眠として記録しました）"
+            elif mins > 840:
+                note = "（長めの休息でした）"
+            return _reply(
+                f"おはようございます。およそ{_fmt_duration_mins(mins)}の休息でした。Notionの睡眠ログに記録しました。{note}",
+                True,
+            )
+        except Exception as e:
+            logger.error("[sleep] wake notion error: %s", e)
+            if sess_start:
+                mins = _minutes_between_sleep(sess_start, now_iso)
+                if sid in CONVERSATIONS:
+                    CONVERSATIONS[sid]["bedtime_iso"] = None
+                if mins >= 5:
+                    return _reply(
+                        f"おはようございます。およそ{_fmt_duration_mins(mins)}です。Notion保存に失敗したため、この端末の記録のみクリアしました。（{e}）",
+                        False,
+                    )
+            return _reply(f"起床の記録に失敗しました: {e}", False)
+
+    if sess_start:
+        mins = _minutes_between_sleep(sess_start, now_iso)
+        if sid in CONVERSATIONS:
+            CONVERSATIONS[sid]["bedtime_iso"] = None
+        if mins < 5:
+            return _reply("まだ数分しか経っていません。", False)
+        return _reply(
+            f"おはようございます。およそ{_fmt_duration_mins(mins)}でした（Notion未設定のため端末のみ）。",
+            False,
+        )
+
+    return _reply(
+        "就寝の記録がありません。「おやすみ」で就寝を付けてから、「おはよう」で起床をお伝えください。",
+        False,
+    )
+
+
+def _handle_health_go(sid: str, text: str) -> dict:
+    line = f"{_iso_now_sleep()} {text[:500]}"
+    try:
+        props = {**_title_prop("【健康】外出"), **_rich_text_prop("内容", line)}
+        _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
+        return {"intent": "health_go", "message": "記録しました。行ってらっしゃいませ、お気をつけて。", "saved": True}
+    except Exception as e:
+        logger.error("[health] go: %s", e)
+        return {"intent": "health_go", "message": "行ってらっしゃいませ。メモ保存のみ失敗しました。", "saved": False}
+
+
+def _handle_health_back(sid: str, text: str) -> dict:
+    line = f"{_iso_now_sleep()} {text[:500]}"
+    try:
+        props = {**_title_prop("【健康】帰宅"), **_rich_text_prop("内容", line)}
+        _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
+        return {"intent": "health_back", "message": "おかえりなさいませ。ご無事で何よりです。", "saved": True}
+    except Exception as e:
+        logger.error("[health] back: %s", e)
+        return {"intent": "health_back", "message": "おかえりなさいませ。メモ保存のみ失敗しました。", "saved": False}
+
+
 def _archive_page(page_id: str) -> bool:
     """Notionページをアーカイブ（ゴミ箱）"""
     try:
@@ -432,7 +662,7 @@ def _search_and_archive(title_query: str) -> dict:
     """タイトルで全DBを検索し、一致するページをアーカイブ"""
     found = []
     for db_name, db_id in DB.items():
-        if db_name in ("ChatLog",):
+        if db_name in ("ChatLog",) or not (str(db_id or "").strip()):
             continue
         try:
             data = _notion_post(f"/databases/{db_id}/query", {
@@ -480,10 +710,11 @@ def root():
 def health():
     return {
         "status": "ok",
-        "version": "2026-03-23n",
+        "version": "2026-03-24a",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
+        "sleep_db_configured": _sleep_db_configured(),
     }
 
 
@@ -631,6 +862,10 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
 - think: 整理して・優先順位・何から・頭の中
+- sleep_bedtime: 就寝のあいさつ・寝る宣言。「おやすみ」「寝ます」「そろそろ寝る」など短い発言
+- sleep_wake: 起床のあいさつ。「おはよう」「起きた」など短い発言（長文に予定の相談が混じる場合はanswer）
+- health_go: 外出の挨拶。「行ってきます」「いってきます」「出かけます」など
+- health_back: 帰宅の挨拶。「ただいま」「帰った」「戻りました」など
 - answer: それ以外すべて。質問・相談・依頼・報告・長文の情報共有。迷ったらanswer
 
 重要な判定ルール:
@@ -660,6 +895,11 @@ Few-shot例:
 "RAG動画の修正終わった" → {{"intent":"done","title":"RAG動画修正","content":"","date":""}}
 "バグ: 起動画面に日付と時刻を表示してほしい" → {{"intent":"debug","title":"バグ: 起動画面に日付と時刻を表示してほしい","content":"","date":""}}
 "不具合: 送信ボタンが効かない" → {{"intent":"debug","title":"不具合: 送信ボタンが効かない","content":"","date":""}}
+"おやすみ" → {{"intent":"sleep_bedtime","title":"","content":"","date":""}}
+"おやすみなさい" → {{"intent":"sleep_bedtime","title":"","content":"","date":""}}
+"おはよう" → {{"intent":"sleep_wake","title":"","content":"","date":""}}
+"行ってきます" → {{"intent":"health_go","title":"","content":"","date":""}}
+"ただいま" → {{"intent":"health_back","title":"","content":"","date":""}}
 
 今日の日付: {today}
 「KAGE、」という呼びかけは無視して内容だけ判定すること。
@@ -727,6 +967,9 @@ def _summarize_via_gemini(instruction: str, data: str) -> str:
 
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
+    h = _explicit_health_intent(message)
+    if h:
+        return h
     text = message.lower()
     if any(k in text for k in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:"]):
         return {"intent": "debug", "title": message, "content": "", "date": ""}
@@ -761,11 +1004,45 @@ def _explicit_debug_intent(message: str) -> Optional[dict]:
     return None
 
 
+def _explicit_health_intent(message: str) -> Optional[dict]:
+    """健康管理・睡眠の短文挨拶は誤分類しにくいよう先に固定"""
+    raw = message.strip()
+    t = raw.replace(" ", "").replace("　", "")
+    if len(t) > 42:
+        return None
+    if len(raw) > 20 and any(x in t for x in ("今日", "予定", "タスク", "教えて", "まとめて", "バグ", "不具合")):
+        return None
+    if re.match(
+        r"^(おやすみなさい|おやすみ|そろそろ寝る|寝ます|ねます|眠いから寝|ねんね)",
+        t,
+    ):
+        return {"intent": "sleep_bedtime", "title": "", "content": "", "date": ""}
+    if re.match(
+        r"^(おはようございます|おはよう|おっはよ|起きました|起きた|起床した)",
+        t,
+    ):
+        return {"intent": "sleep_wake", "title": "", "content": "", "date": ""}
+    if re.match(
+        r"^(いってきます|行ってきます|いってくる|行ってくる|いってき|出かけます|出かけるよ|出かける)",
+        t,
+    ):
+        return {"intent": "health_go", "title": "", "content": "", "date": ""}
+    if re.match(
+        r"^(ただいま|ただいまです|帰りました|帰った|戻りました|戻った|ただいま戻)",
+        t,
+    ):
+        return {"intent": "health_back", "title": "", "content": "", "date": ""}
+    return None
+
+
 def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> dict:
     """Gemini APIでintentを分類。会話履歴があれば文脈も考慮する"""
     forced = _explicit_debug_intent(text)
     if forced:
         return forced
+    forced_h = _explicit_health_intent(text)
+    if forced_h:
+        return forced_h
 
     today_str = date.today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
@@ -912,14 +1189,36 @@ def _fetch_brain() -> dict:
             result.append({"title": name, "date": d, "memo": memo})
         return result
 
-    brain = {"memos": [], "tasks": [], "ideas": [], "schedule": [], "profile": []}
+    def _q_sleep_logs():
+        if not _sleep_db_configured():
+            return []
+        try:
+            data = _notion_post(f"/databases/{DB['Sleep'].strip()}/query", {
+                "sorts": [{"property": "就寝", "direction": "descending"}],
+                "page_size": 14,
+            })
+            out = []
+            for row in data.get("results", []):
+                tit = row["properties"]["名前"]["title"]
+                name = tit[0]["plain_text"] if tit else "(無題)"
+                bd = (row["properties"].get("就寝", {}).get("date") or {}).get("start", "")
+                wk = (row["properties"].get("起床", {}).get("date") or {}).get("start", "")
+                mins = row["properties"].get("睡眠分", {}).get("number")
+                out.append({"title": name, "bed": bd, "wake": wk, "minutes": mins})
+            return out
+        except Exception as e:
+            logger.error("[brain] sleep logs: %s", e)
+            return []
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    brain = {"memos": [], "tasks": [], "ideas": [], "schedule": [], "profile": [], "sleep": []}
+
+    with ThreadPoolExecutor(max_workers=5) as pool:
         futures = {
             pool.submit(_q_memos): "memos",
             pool.submit(_q_tasks): "tasks",
             pool.submit(_q_ideas): "ideas",
             pool.submit(_q_schedule): "schedule",
+            pool.submit(_q_sleep_logs): "sleep",
         }
         for fut in as_completed(futures):
             key = futures[fut]
@@ -934,9 +1233,9 @@ def _fetch_brain() -> dict:
         brain["profile"] = []
 
     elapsed = int((time.time() - t0) * 1000)
-    logger.info("[brain] fetched in %dms (memos=%d tasks=%d ideas=%d sched=%d profile=%d)",
+    logger.info("[brain] fetched in %dms (memos=%d tasks=%d ideas=%d sched=%d sleep=%d profile=%d)",
                 elapsed, len(brain["memos"]), len(brain["tasks"]),
-                len(brain["ideas"]), len(brain["schedule"]), len(brain["profile"]))
+                len(brain["ideas"]), len(brain["schedule"]), len(brain["sleep"]), len(brain["profile"]))
     return brain
 
 
@@ -963,7 +1262,8 @@ def think():
         f"## メモ（直近20件）\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
         f"## タスク（直近20件）\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
         f"## アイデア（直近10件）\n{json.dumps(brain['ideas'], ensure_ascii=False)}\n\n"
-        f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}"
+        f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}\n\n"
+        f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
 
     user_prompt = f"今日は {date.today().isoformat()} です。以下のNotionデータを分析して整理してください:\n\n{context}"
@@ -1034,7 +1334,11 @@ def chat(req: ChatRequest):
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
-    KNOWN_INTENTS = {"memo", "idea", "schedule", "profile", "done", "debug", "today", "upcoming", "think", "answer", "unknown"}
+    KNOWN_INTENTS = {
+        "memo", "idea", "schedule", "profile", "done", "debug",
+        "sleep_bedtime", "sleep_wake", "health_go", "health_back",
+        "today", "upcoming", "think", "answer", "unknown",
+    }
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
         intent = "answer"
@@ -1045,7 +1349,10 @@ def chat(req: ChatRequest):
         msg = resp.get("message", "")
         if msg:
             _add_to_session(sid, "assistant", msg)
-        if intent not in ("profile", "debug") and GEMINI_API_KEY:
+        skip_learn = (
+            "profile", "debug", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
+        )
+        if intent not in skip_learn and GEMINI_API_KEY:
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
         return resp
 
@@ -1102,6 +1409,16 @@ def chat(req: ChatRequest):
         except Exception:
             return _respond({"intent": "profile", "message": f"保存に失敗しました: {title}", "saved": False})
 
+    # --- 睡眠・健康ログ ---
+    if intent == "sleep_bedtime":
+        return _respond(_handle_sleep_bedtime(sid, text))
+    if intent == "sleep_wake":
+        return _respond(_handle_sleep_wake(sid, text))
+    if intent == "health_go":
+        return _respond(_handle_health_go(sid, text))
+    if intent == "health_back":
+        return _respond(_handle_health_back(sid, text))
+
     # --- done (完了/削除) ---
     if intent == "done":
         query = classified.get("title") or text[:30]
@@ -1145,8 +1462,8 @@ def chat(req: ChatRequest):
             if context_lines:
                 props["会話コンテキスト"] = {"rich_text": [{"text": {"content": context_lines[:2000]}}]}
             r = requests.post(
-                "https://api.notion.com/v1/pages",
-                headers=NOTION_H,
+                f"{BASE}/pages",
+                headers=HEADERS,
                 json={"parent": {"database_id": DB["Debug"]}, "properties": props},
             )
             if r.status_code == 200:
@@ -1197,13 +1514,14 @@ def chat(req: ChatRequest):
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
 
     history_text = _build_history_text(sid)
 
     context = (
         f"## ボスのプロフィール・記憶\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
         f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
+        f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}\n\n"
         f"## 今日の予定・タスク\n{json.dumps(brain.get('schedule', []), ensure_ascii=False)}\n"
         f"{json.dumps(brain.get('tasks', []), ensure_ascii=False)}"
     )
@@ -1252,7 +1570,7 @@ def morning():
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
 
     today_str = date.today().isoformat()
     context = (
@@ -1260,7 +1578,8 @@ def morning():
         f"## ボスのプロフィール\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
         f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}\n\n"
         f"## タスク\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
-        f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}"
+        f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
+        f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
 
     try:
@@ -1293,6 +1612,7 @@ def _brain_slice_for_opening(brain: dict) -> dict:
         "ideas": (brain.get("ideas") or [])[:4],
         "tasks": (brain.get("tasks") or [])[:10],
         "schedule": (brain.get("schedule") or [])[:10],
+        "sleep": (brain.get("sleep") or [])[:7],
     }
 
 
@@ -1305,7 +1625,7 @@ def opening_line():
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
 
     slim = _brain_slice_for_opening(brain)
     clock = _now_clock_block()

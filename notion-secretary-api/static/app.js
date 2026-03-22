@@ -1,7 +1,7 @@
 'use strict';
 
 const API     = location.origin;
-const VERSION = 'v0.9';
+const VERSION = 'v0.10';
 const BUILD   = '2026-03-23';
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
@@ -138,10 +138,23 @@ async function get(path) {
 }
 
 // ── Response renderer ─────────────────────────────
-const BADGE = { memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶', done:'🗑️ 完了', debug:'🐛 バグ報告' };
+const BADGE = {
+  memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶',
+  done:'🗑️ 完了', debug:'🐛 バグ報告',
+  sleep_bedtime:'💤 就寝', sleep_wake:'🌅 起床', health_go:'🚪 外出', health_back:'🏠 帰宅',
+};
 
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
+
+  if (['sleep_bedtime','sleep_wake','health_go','health_back'].includes(intent)) {
+    const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
+    const foot = saved
+      ? '<br><span class="badge-save">✓ Notionに記録しました</span>'
+      : '<br><span class="badge-save dim-save">※ この端末のセッションのみ、またはNotion未保存です</span>';
+    addMsg('kage', `${b}${esc(message||'')}${foot}`, 'saved');
+    return;
+  }
 
   if (saved === true || ['memo','idea','task','schedule','profile','debug'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
