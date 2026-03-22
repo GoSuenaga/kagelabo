@@ -4,7 +4,8 @@ Gensparkなど外部チャットから呼び出してNotionに自動保存する
 """
 
 import os
-from datetime import date
+import re
+from datetime import date, timedelta
 
 import requests
 from fastapi import FastAPI, HTTPException
@@ -87,6 +88,27 @@ class MemoRequest(BaseModel):
     title: str
     content: str = ""
 
+class ChatRequest(BaseModel):
+    message: str
+
+# ---------------------------------------------------------------------------
+# /chat 意図分類（ルールベース）
+# ---------------------------------------------------------------------------
+
+_QUERY_TODAY = re.compile(
+    r"今日.*(予定|やる|すべき|する|タスク|何)|このあと|これから何", re.IGNORECASE
+)
+_QUERY_UPCOMING = re.compile(
+    r"(今後|来週|再来週|今週|これから|先|直近|次).*(予定|スケジュール|ある)|予定.*(教えて|ある|確認|見せて|知りたい)",
+    re.IGNORECASE,
+)
+_QUERY_GENERIC = re.compile(
+    r"(どう|何|いつ|どこ|誰|なぜ|どれ).*(？|\?|しよう|すれば|だっけ|かな)|教えて|ある？|ありますか",
+    re.IGNORECASE,
+)
+_CMD_MEMO = re.compile(r"^メモ[:：]\s*(.+)", re.IGNORECASE)
+_CMD_IDEA = re.compile(r"^アイデア[:：]\s*(.+)", re.IGNORECASE)
+
 # ---------------------------------------------------------------------------
 # エンドポイント
 # ---------------------------------------------------------------------------
@@ -162,3 +184,79 @@ def get_today():
         tasks.append({"title": name, "status": status})
 
     return {"date": today, "schedules": schedules, "tasks": tasks}
+
+
+@app.get("/upcoming")
+def get_upcoming(days: int = 14):
+    """今日から days 日分の予定を近い順に返す"""
+    today = date.today().isoformat()
+    until = (date.today() + timedelta(days=days)).isoformat()
+
+    data = _notion_post(f"/databases/{DB['Schedule']}/query", {
+        "filter": {
+            "and": [
+                {"property": "日付", "date": {"on_or_after": today}},
+                {"property": "日付", "date": {"on_or_before": until}},
+            ]
+        },
+        "sorts": [{"property": "日付", "direction": "ascending"}],
+    })
+
+    items = []
+    for row in data.get("results", []):
+        title = row["properties"]["名前"]["title"]
+        name = title[0]["plain_text"] if title else "(無題)"
+        date_prop = row["properties"].get("日付", {}).get("date") or {}
+        memo_rt = row["properties"].get("メモ", {}).get("rich_text", [])
+        memo = memo_rt[0]["plain_text"] if memo_rt else ""
+        items.append({
+            "title": name,
+            "date": date_prop.get("start", ""),
+            "memo": memo,
+        })
+
+    return {"from": today, "until": until, "count": len(items), "schedules": items}
+
+
+@app.post("/chat")
+def chat(req: ChatRequest):
+    """自然文を受け取り、意図に応じて振り分ける"""
+    msg = req.message.strip()
+
+    # --- 明示コマンド: メモ/アイデア ---
+    m = _CMD_MEMO.match(msg)
+    if m:
+        body = m.group(1).strip()
+        add_memo(MemoRequest(title=body))
+        return {"intent": "memo", "message": f"メモを保存しました: {body}"}
+
+    m = _CMD_IDEA.match(msg)
+    if m:
+        body = m.group(1).strip()
+        add_idea(IdeaRequest(title=body))
+        return {"intent": "idea", "message": f"アイデアを保存しました: {body}"}
+
+    # --- 質問系: 今日 ---
+    if _QUERY_TODAY.search(msg):
+        result = get_today()
+        return {"intent": "today", "message": "今日の予定とタスクです。", "data": result}
+
+    # --- 質問系: 今後の予定 ---
+    if _QUERY_UPCOMING.search(msg):
+        result = get_upcoming()
+        return {"intent": "upcoming", "message": "直近の予定です。", "data": result}
+
+    # --- 質問っぽい（保存しない） ---
+    if _QUERY_GENERIC.search(msg):
+        return {
+            "intent": "unknown_question",
+            "message": f"「{msg}」についてはまだ自動で答えられません。メモとして保存しますか？",
+            "save_hint": {"memo_title": msg},
+        }
+
+    # --- どれにも当てはまらない → 確認を返す（誤保存防止） ---
+    return {
+        "intent": "unclear",
+        "message": f"「{msg}」をメモとして保存しますか？ それとも質問ですか？",
+        "save_hint": {"memo_title": msg},
+    }
