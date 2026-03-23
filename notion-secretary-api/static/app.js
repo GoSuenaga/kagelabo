@@ -133,6 +133,7 @@ function showWelcome() {
             <li>📝 メモ・💡 アイデア → 保存</li>
             <li>📋 議事録 → Notion に蓄積。DBの列はサーバがNotionから自動認識（型さえ合っていれば列名は日本語でも可）。長文は要約＋原文保存可</li>
             <li>📅 予定ボタン → 日時つきで保存</li>
+            <li>📷 会社カレンダーのスクショ＋「明日の予定はこれ」など → 会議枠をまとめて取込（(((AM2h))) / Focus time は除外）</li>
             <li>🧠 整理ボタン → タスクを整理</li>
             <li>🐛 バグボタン → 不具合を Notion に記録</li>
             <li>✅ 仕事タスク → Tasks に保存（所要時間が無いと聞き返します）</li>
@@ -252,6 +253,16 @@ function renderResponse(data, originalText) {
 
   if (data.need_schedule_confirmation && data.schedule_candidates && data.schedule_proposed) {
     renderScheduleDupConfirm(data);
+    return;
+  }
+
+  if (intent === 'schedule' && data.schedule_image_import) {
+    const b = BADGE.schedule ? `<span class="badge-intent">${BADGE.schedule}</span><br>` : '';
+    const foot =
+      saved === true
+        ? '<br><span class="badge-save">✓ 画像から予定を Notion に登録しました</span>'
+        : '<br><span class="badge-save dim-save">※ 予定を読み取れませんでした。「明日の予定」「スケジュール取り込んで」などと添えてお試しください</span>';
+    addMsg('kage', `${b}${esc(message || '')}${foot}`, saved === true ? 'saved' : 'warn');
     return;
   }
 

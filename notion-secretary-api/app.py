@@ -781,9 +781,11 @@ def _schedule_handle_request(
     *,
     confirm_not_duplicate: bool = False,
     merge_into_page_id: Optional[str] = None,
+    bulk_skip_duplicate_prompt: bool = False,
 ) -> dict:
     """
     予定1件の解決。重複候補ありかつ未解決なら need_schedule_confirmation を立てる。
+    bulk_skip_duplicate_prompt: 画像一括取込時など、確認ダイアログを出さず新規作成する。
     """
     title = (title or "").strip()[:200]
     date_s = (date_s or "").strip()[:32]
@@ -827,6 +829,13 @@ def _schedule_handle_request(
 
         cands = _schedule_duplicate_candidates(title, date_s)
         if cands:
+            if bulk_skip_duplicate_prompt:
+                _notion_insert_schedule_page(title, date_s, memo)
+                return {
+                    "saved": True,
+                    "message": f"予定を登録しました（一括取込・重複確認スキップ）: {title}（{date_s}）",
+                    "need_schedule_confirmation": False,
+                }
             return {
                 "saved": False,
                 "message": (
@@ -856,6 +865,241 @@ def _schedule_handle_request(
             "message": f"Notion への保存に失敗しました: {title}",
             "need_schedule_confirmation": False,
         }
+
+
+_CALENDAR_FOCUS_SKIP_RE = re.compile(
+    r"\(\(\([^)]+\)\)\)|Focus\s*time|フォーカスタイム|作業時間キープ",
+    re.IGNORECASE,
+)
+_TIME_HM_RE = re.compile(r"^([01]?\d|2[0-3]):([0-5]\d)$")
+
+
+def _looks_like_calendar_screenshot_import(text: str) -> bool:
+    """画像＋短文で会社カレンダー取り込みと判断する（誤爆を抑える）"""
+    t = (text or "").strip()
+    if not t:
+        return False
+    if "この画像について" in t and "予定" not in t and "スケジュール" not in t and "カレンダー" not in t:
+        return False
+    if any(
+        k in t
+        for k in (
+            "予定表",
+            "スケジュール",
+            "カレンダー",
+            "日程",
+            "取り込",
+            "取込",
+            "スクショ",
+            "画面",
+            "予定を",
+            "予定に",
+            "会議が",
+            "MTG",
+            "入れて",
+            "登録して",
+        )
+    ):
+        return True
+    if ("明日" in t or "今日" in t or "明後日" in t) and ("予定" in t or "これ" in t):
+        return True
+    if "会社" in t and "予定" in t:
+        return True
+    return False
+
+
+def _parse_calendar_target_date_iso(text: str) -> str:
+    """ユーザ文面から対象日（YYYY-MM-DD）。曖昧なら明日。"""
+    base = _local_today()
+    raw = text or ""
+    if "明後日" in raw:
+        return (base + timedelta(days=2)).isoformat()
+    if "明日" in raw:
+        return (base + timedelta(days=1)).isoformat()
+    if "今日" in raw:
+        return base.isoformat()
+    if "昨日" in raw:
+        return (base - timedelta(days=1)).isoformat()
+    m = re.search(r"(\d{1,2})月(\d{1,2})日", raw)
+    if m:
+        mo, da = int(m.group(1)), int(m.group(2))
+        y = base.year
+        try:
+            d0 = date(y, mo, da)
+        except ValueError:
+            return (base + timedelta(days=1)).isoformat()
+        if d0 < base:
+            try:
+                d0 = date(y + 1, mo, da)
+            except ValueError:
+                pass
+        return d0.isoformat()
+    m2 = re.search(r"(?:20\d{2})?[/-]?(\d{1,2})[/-](\d{1,2})(?:[/-](\d{2,4}))?", raw)
+    if m2:
+        mo, da = int(m2.group(1)), int(m2.group(2))
+        y = base.year
+        if m2.lastindex and m2.lastindex >= 3 and m2.group(3):
+            yy = int(m2.group(3))
+            y = yy + 2000 if yy < 100 else yy
+        try:
+            d0 = date(y, mo, da)
+        except ValueError:
+            return (base + timedelta(days=1)).isoformat()
+        if len(raw) < 30 and d0 < base and not m2.group(3):
+            try:
+                d0 = date(y + 1, mo, da)
+            except ValueError:
+                pass
+        return d0.isoformat()
+    return (base + timedelta(days=1)).isoformat()
+
+
+def _calendar_title_is_focus_hold(title: str) -> bool:
+    t = (title or "").strip()
+    if not t:
+        return True
+    if _CALENDAR_FOCUS_SKIP_RE.search(t):
+        return True
+    if "Focus" in t and "time" in t.lower():
+        return True
+    if "作業時間" in t and "キープ" in t:
+        return True
+    return False
+
+
+def _normalize_hhmm(s: str) -> Optional[str]:
+    s = (s or "").strip().replace("：", ":")
+    if _TIME_HM_RE.match(s):
+        parts = s.split(":")
+        return f"{int(parts[0]):02d}:{parts[1]}"
+    return None
+
+
+CALENDAR_IMAGE_SYSTEM = """\
+あなたはカレンダー・予定表のスクリーンショットを読み取る秘書です。
+表示されている枠のうち、**実務の会議・MTG・打ち合わせ・定例**として残すべきものだけを抽出してください。
+
+**絶対に配列に含めないもの**（作業枠のキープ。他予定で上書きしてよい時間）:
+- タイトルに ((( と ))) が付いたブロック（例: (((AM2h))) Focus time、(((PM3h)))）
+- 「Focus time」「フォーカスタイム」が主で、会議名がない確保枠
+- 会議タイトルがなく「作業」「ワーク」のみの空枠
+
+**含める**: 【】付きの定例、Zoom/MTG 付きの予定。角括弧の ZOOM 会議室名はタイトルから省いてよい。
+
+各要素は start, end（24時間 HH:MM）、title（簡潔な日本語）。
+出力は JSON のみ: {"events":[{"start":"10:30","end":"11:00","title":"..."}]}
+"""
+
+
+def _gemini_extract_calendar_events_from_image(
+    image_b64: str,
+    mime: str,
+    target_date_iso: str,
+    user_text: str,
+) -> list[dict]:
+    if not GEMINI_API_KEY or not image_b64:
+        return []
+    user_line = (
+        f"対象日付（この日の予定として解釈）: {target_date_iso}\n"
+        f"ユーザーのメモ: {user_text[:500]}\n"
+        "画像から予定を抽出してください。"
+    )
+    parts: list[dict] = [
+        {"text": CALENDAR_IMAGE_SYSTEM + "\n\n" + user_line},
+        {"inline_data": {"mime_type": mime or "image/jpeg", "data": image_b64}},
+    ]
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(
+            gemini_url,
+            json={
+                "contents": [{"parts": parts}],
+                "generationConfig": {
+                    "temperature": 0.1,
+                    "maxOutputTokens": 4096,
+                    "response_mime_type": "application/json",
+                },
+            },
+            timeout=60,
+        )
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        data = json.loads(raw)
+    except Exception as e:
+        logger.error("[calendar_image] Gemini extract failed: %s", e)
+        return []
+    evs = data.get("events") if isinstance(data, dict) else None
+    if not isinstance(evs, list):
+        return []
+    out: list[dict] = []
+    for item in evs[:24]:
+        if not isinstance(item, dict):
+            continue
+        title = (item.get("title") or "").strip()
+        if _calendar_title_is_focus_hold(title):
+            continue
+        st = _normalize_hhmm(str(item.get("start") or ""))
+        en = _normalize_hhmm(str(item.get("end") or ""))
+        if not title or not st:
+            continue
+        if not en:
+            en = st
+        out.append({"start": st, "end": en, "title": title[:200]})
+    return out
+
+
+def _import_schedules_from_calendar_screenshot(
+    image_b64: str,
+    mime: str,
+    user_text: str,
+) -> dict:
+    """カレンダー画像から複数予定を Schedule DB に登録する。"""
+    target = _parse_calendar_target_date_iso(user_text)
+    events = _gemini_extract_calendar_events_from_image(image_b64, mime, target, user_text)
+    if not events:
+        return {
+            "ok": False,
+            "message": (
+                f"画像から予定を読み取れませんでした（{target}）。"
+                "「明日の予定はこれ」のように日付を添えて、もう一度お試しください。"
+            ),
+            "target_date": target,
+            "saved_count": 0,
+            "events": [],
+        }
+    ok_n = 0
+    err_n = 0
+    lines: list[str] = []
+    for ev in events:
+        memo = f"{ev['start']}–{ev['end']}（会社カレンダー画像から取込）"
+        r = _schedule_handle_request(
+            ev["title"],
+            target,
+            memo,
+            bulk_skip_duplicate_prompt=True,
+        )
+        if r.get("saved"):
+            ok_n += 1
+            lines.append(f"・{ev['start']}–{ev['end']} {ev['title']}")
+        else:
+            err_n += 1
+    msg = (
+        f"{target} の予定を、画像から {ok_n} 件 Notion に登録しました。\n"
+        "（(((AM2h))) などの作業キープ枠・Focus time は登録していません。会議で上書きして問題ない扱いです。）\n"
+        + "\n".join(lines[:20])
+    )
+    if err_n:
+        msg += f"\n\n※ {err_n}件は保存に失敗した可能性があります。"
+    return {
+        "ok": ok_n > 0,
+        "message": msg,
+        "target_date": target,
+        "saved_count": ok_n,
+        "events": events,
+    }
 
 
 def _number_prop(key: str, val: float) -> dict:
@@ -3176,6 +3420,38 @@ def chat(req: ChatRequest):
 
     _add_to_session(sid, "user", text)
 
+    # --- 会社カレンダーのスクショ → 複数予定を一括登録 ---
+    if req.image and GEMINI_API_KEY and _looks_like_calendar_screenshot_import(text):
+        try:
+            imp = _import_schedules_from_calendar_screenshot(
+                req.image,
+                req.mime_type or "image/jpeg",
+                text,
+            )
+            _add_to_session(sid, "assistant", imp["message"])
+            return {
+                "intent": "schedule",
+                "session_id": sid,
+                "message": imp["message"],
+                "saved": bool(imp.get("ok")),
+                "schedule_image_import": True,
+                "schedule_import_meta": {
+                    "target_date": imp.get("target_date"),
+                    "saved_count": imp.get("saved_count", 0),
+                },
+            }
+        except Exception as e:
+            logger.error("[calendar_image] import failed: %s", e)
+            err_msg = "カレンダー画像の取り込み中にエラーが発生しました。時間をおいて再度お試しください。"
+            _add_to_session(sid, "assistant", err_msg)
+            return {
+                "intent": "schedule",
+                "session_id": sid,
+                "message": err_msg,
+                "saved": False,
+                "schedule_image_import": True,
+            }
+
     # --- タスク登録の続き（所要時間の返答） ---
     _ensure_session_pending_task(sid)
     pending_task_resp = _handle_pending_task_reply(sid, text)
@@ -3248,7 +3524,12 @@ def chat(req: ChatRequest):
         skip_learn = (
             "profile", "debug", "task", "minutes", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         )
-        if intent not in skip_learn and not resp.get("need_schedule_confirmation") and GEMINI_API_KEY:
+        if (
+            intent not in skip_learn
+            and not resp.get("need_schedule_confirmation")
+            and not resp.get("schedule_image_import")
+            and GEMINI_API_KEY
+        ):
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
         return resp
 
