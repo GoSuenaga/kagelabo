@@ -1,5 +1,5 @@
 {
-  "app_version": "0.150",
+  "app_version": "0.151",
   "release_date": "2026-03-23",
-  "summary": "本日の議事録→minutes固定、memo/idea等もrich_text分割"
+  "summary": "API失敗時にサーバーdetailを表示（議事録モーダル等）"
 }

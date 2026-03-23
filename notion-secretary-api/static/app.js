@@ -125,7 +125,7 @@ function showWelcome() {
           <p class="welcome-details-lead">影が Notion の管理をサポートいたします。</p>
           <ul class="welcome-hint-list">
             <li>📝 メモ・💡 アイデア → 保存</li>
-            <li>📋 議事録 → 会議タイトル・日時・本文を Notion に蓄積</li>
+            <li>📋 議事録 → Notion に蓄積。長文は自動で要約し原文も保存（数十秒かかることがあります）</li>
             <li>📅 予定ボタン → 日時つきで保存</li>
             <li>🧠 整理ボタン → タスクを整理</li>
             <li>🐛 バグボタン → 不具合を Notion に記録</li>
@@ -145,18 +145,39 @@ function showWelcome() {
 }
 
 // ── API ───────────────────────────────────────────
+/** FastAPI の { detail: string | array } やプレーンテキストから人向けメッセージを取り出す */
+async function fetchErrorMessage(r) {
+  const ct = (r.headers.get('content-type') || '').toLowerCase();
+  try {
+    if (ct.includes('application/json')) {
+      const j = await r.json();
+      if (typeof j.detail === 'string') return j.detail;
+      if (Array.isArray(j.detail)) {
+        const parts = j.detail
+          .map((x) => (x && (x.msg || x.message)) || '')
+          .filter(Boolean);
+        if (parts.length) return parts.join(' ');
+      }
+    } else {
+      const t = await r.text();
+      if (t && t.length < 800) return t.trim();
+    }
+  } catch (_) { /* ignore */ }
+  return `HTTP ${r.status}`;
+}
+
 async function post(path, body) {
   const r = await fetch(`${API}${path}`,{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body: JSON.stringify(body)
   });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) throw new Error(await fetchErrorMessage(r));
   return r.json();
 }
 async function get(path) {
   const r = await fetch(`${API}${path}`);
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  if (!r.ok) throw new Error(await fetchErrorMessage(r));
   return r.json();
 }
 
@@ -572,7 +593,13 @@ async function saveMinutes() {
     addMsg('kage',`📋 <strong>${esc(title)}</strong><br>${esc(when)}<br><span class="badge-save">✓ 議事録 DB に保存しました</span>`,'saved');
   } catch (e) {
     hideTyping();
-    addMsg('kage',`ボス、議事録の保存に失敗しました。NOTION_DB_MINUTES が未設定の可能性があります。`,'error');
+    const detail = esc(String(e.message || e));
+    addMsg(
+      'kage',
+      `ボス、議事録の保存に失敗しました。<br><small style="opacity:.9">${detail}</small>` +
+        `<br><small style="opacity:.75">※ <code>/health</code> の <code>minutes_db_configured</code> が false のときは Railway に <code>NOTION_DB_MINUTES</code>（議事録DBのID）を設定してください。</small>`,
+      'error'
+    );
   } finally { minutesSave.disabled = false; }
 }
 
