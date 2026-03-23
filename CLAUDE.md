@@ -1,48 +1,65 @@
-# プロジェクト概要
+# プロジェクト概要（モノレポ）
 
-VANTAN向けのVlog風広告動画を自動生成するシステム。
-元々Difyで作っていたワークフローをPythonに移植中。
+このリポジトリは **1 本の Git** で次をまとめています。
 
-## 現在の進行状況（2026-03-18更新）
+| アプリ | パス | 内容 |
+|--------|------|------|
+| **KAGE** | `apps/kage/` | Notion 秘書 API（FastAPI）。デプロイ時は Root を `apps/kage` に。 |
+| **VANTAN 動画** | `apps/vantan-video/` | Vlog 風広告パイプライン（`vlog_engine`、各種 `generate_*.py`）。 |
+| **RAG / 静止画 QC** | `apps/rag-images/` | 広告クリエ QC ギャラリー（FastAPI + Imagen）。 |
+| **共有（予定）** | `packages/shared/` | 将来、共通 Python を切り出す。 |
+| **スナップショット** | `packages/20260323_vantan_v1/` | VANTAN 動画の設計・再現用パッケージ。 |
 
-### 1. Vlog動画自動生成ツール（メイン作業）
+ルートの **README.md** に起動コマンドの要約あり。
 
-**ファイル構成:**
-- `vlog_engine.py` — ワークフローエンジン（Geminiスクリプト生成→fal Veo3動画生成→ElevenLabs音声→Creatomate合成）
-- `vlog_app.py` — Streamlit UI（`streamlit run vlog_app.py` で起動）
-- `vlog_prompt_bible.md` — プロンプト設計思想ドキュメント
-- `vlogプロンプト - シート1.csv` — Vlog風プロンプトストック（92個、16カテゴリ）
-- `.env` — APIキー設定（DRY_RUN=true で外部API呼ばずに動作テスト可能）
+---
 
-**前回やった修正:**
-- Subject（"20代女性"等）→ 英語マッピング追加（Veo3は英語プロンプトのみ）
-- `{{ }}` プレースホルダー置換バグ修正（人物属性だけ置換、服装等はそのまま展開）
-- fal.run: 同期API → queue-based API（動画生成のタイムアウト対策）
-- Creatomate: ポーリング対応（レンダリング完了まで待機）
-- DRY_RUN モード追加（外部API不要でロジックテスト可能）
-- APIキー未設定時の警告表示
+## 1. Vlog 動画自動生成（メイン作業）
+
+**場所:** `apps/vantan-video/`
+
+- `vlog_engine.py` — ワークフローエンジン（Gemini → fal Veo3 → ElevenLabs → Creatomate 等）
+- `vlog_app.py` — Streamlit UI（**`cd apps/vantan-video` のうえ** `streamlit run vlog_app.py`）
+- `vlog_prompt_bible.md` — プロンプト設計
+- `vlogプロンプト - シート1.csv` — プロンプトストック
+- `.env` — ルートまたはこのフォルダ（`VLOG_CSV_PATH` は cwd に依存しやすいので **フォルダ内で実行**を推奨）
+
+**残タスク（例）:**
+- [ ] `apps/vantan-video` でドライラン起動テスト
+- [ ] `.env` に GEMINI_API_KEY（https://aistudio.google.com/apikey）
+- [ ] 実 API 通しテスト
+
+---
+
+## 2. QC ギャラリー（静止画）
+
+**場所:** `apps/rag-images/`（旧 `qc-gallery-app`）
+
+- `apps/rag-images/README.md` に起動手順
 
 **残タスク:**
-- [ ] `streamlit run vlog_app.py` でドライラン起動テスト
-- [ ] `.env` に GEMINI_API_KEY を設定（https://aistudio.google.com/apikey）
-- [ ] 実APIでの通しテスト
+- [ ] `.env` に GEMINI_API_KEY
+- [ ] `briefs.json` を実案件に差し替え
 
-### 2. QCギャラリーアプリ（サブ作業）
+---
 
-`qc-gallery-app/` にある広告クリエイティブのQCレビュー用Webアプリ。
-- FastAPI + Gemini Imagen 3 で画像生成
-- `qc-gallery-app/README.md` に起動手順あり
+## 3. KAGE（秘書）
 
-**残タスク:**
-- [ ] `.env` に GEMINI_API_KEY 設定して起動テスト
-- [ ] briefs.json を実案件データに差し替え
+**場所:** `apps/kage/`
 
-### 3. 旧Difyファイル（参考用、もう使わない）
-- `vantan_fixed.yml`, `vantan_ad_workflow.yml` — 旧Difyワークフロー
-- `run_vantan_workflow.gs`, `setup_vantan_spreadsheet.gs` — 旧GASスクリプト
+- `uvicorn app:app`、`Procfile`、`.env.example` はすべてこの配下
+- 運用メモ: `apps/kage/GENSPARK_KAGE_NOTION_SETUP.md` 等
+
+---
+
+## 4. 旧 Dify / GAS（参考のみ）
+
+- `vantan_fixed.yml` 等 — `.gitignore` で除外されている場合あり
+
+---
 
 ## 再開手順
 
-1. Cursorを開く
-2. このファイル（CLAUDE.md）を開いた状態でチャットを始める
-3. 「続きをやりたい」と言えばOK
+1. リポジトリルートで `README.md` と本ファイルを確認
+2. 触るアプリの `apps/...` に `cd`
+3. 「続きをやりたい」とチャットで伝える

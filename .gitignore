@@ -32,5 +32,4 @@ vantan_fixed.yml
 vantan_ad_workflow.yml
 *.gs
 
-# Notion secretary (separate project)
-notion-secretary-api/
+# KAGE は apps/kage（モノレポ）

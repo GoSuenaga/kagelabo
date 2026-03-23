@@ -7,7 +7,7 @@
 
 ## 目的
 
-- KAGE（`notion-secretary-api`）が **議事録** を Notion に保存できるようにする。
+- KAGE（リポジトリでは `apps/kage`。Railway サービス名は従来どおり可）が **議事録** を Notion に保存できるようにする。
 - **長文**はサーバ側で **要約**し、**原文も残す**（列の設定次第で「内容」と「原文」に分離可能）。
 
 本番例（参考）: `https://notion-secretary-api-production.up.railway.app/app`
@@ -18,7 +18,7 @@
 
 - ワークスペースに **Go_KAGE** まわりの DB がある（Schedule / Tasks / Memos 等）。
 - **KAGE 用 Notion インテグレーション**（例: 名前が `Go_KAGE`）が既に存在し、他 DB に接続済みである。
-- **Railway** に `notion-secretary-api` がデプロイされ、`NOTION_API_KEY` / `GEMINI_API_KEY` が設定済みである。
+- **Railway** に KAGE がデプロイされ（**Root Directory を `apps/kage` に設定**）、`NOTION_API_KEY` / `GEMINI_API_KEY` が設定済みである。
 
 ---
 
@@ -84,7 +84,7 @@
 
 ## 作業 4：Railway の環境変数
 
-対象: **notion-secretary-api を動かしているサービス**の **Variables**（プロジェクト共通だけに付けない）。
+対象: **KAGE（`apps/kage`）を動かしているサービス**の **Variables**（プロジェクト共通だけに付けない）。
 
 | Variable | 値 |
 |----------|-----|

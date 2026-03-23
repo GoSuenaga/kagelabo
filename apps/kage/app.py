@@ -2514,8 +2514,8 @@ def kage_meta():
             "admin_notion_sync": "/admin/kage-notion-sync",
             "kage_static_doc": "/docs/kage-static",
         },
-        "release_file": "notion-secretary-api/static/kage_release.json",
-        "glossary_file": "notion-secretary-api/kage_glossary.json",
+        "release_file": "apps/kage/static/kage_release.json",
+        "glossary_file": "apps/kage/kage_glossary.json",
     }
 
 
@@ -2564,7 +2564,7 @@ def kage_meta_notion_export():
         "- `GET /news/digest` … RSSダイジェスト",
         "",
         "### バージョンを上げる場所（開発者向け）",
-        "- リポジトリの `notion-secretary-api/static/kage_release.json` の **`app_version`**（ここが唯一のソース）",
+        "- リポジトリの `apps/kage/static/kage_release.json` の **`app_version`**（ここが唯一のソース）",
         "- **コードや文言を変えたら必ず版を上げる**（デプロイのたびに追従しやすくするため）。",
         "- 目安: 大きい改修は `0.15` → `0.20` や `0.201` のようにまとまりで上げる。細かい修正は `0.144` → `0.145` のように末位だけ進める。",
         "- デプロイ後、ヘッダーの **v{ver}** と `{health_u}` の `version` が一致することを確認。",
