@@ -1,0 +1,5 @@
+{
+  "app_version": "0.147",
+  "release_date": "2026-03-26",
+  "summary": "/app は no-store + 版サーバ埋め込み、/api/kage-release.json でキャッシュ回避"
+}

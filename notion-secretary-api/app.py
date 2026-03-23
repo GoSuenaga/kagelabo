@@ -6,6 +6,7 @@ Gensparkなど外部チャットから呼び出してNotionに自動保存する
 import json
 import logging
 import os
+import random
 import re
 import threading
 import time
@@ -17,9 +18,10 @@ from pathlib import Path
 from typing import Optional
 
 import requests
-from fastapi import FastAPI, HTTPException
+import news_digest
+from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -61,6 +63,33 @@ NOTION_TASK_MINUTES_PROP = os.environ.get("NOTION_TASK_MINUTES_PROP", "見積分
 
 BASE = "https://api.notion.com/v1"
 
+# Notion に貼る用の公開URL（Railway 等の本番URL。未設定ならフロントは location.href をコピー）
+KAGE_PUBLIC_URL = os.environ.get("KAGE_PUBLIC_URL", "").strip()
+
+# 静的ファイル根（KAGE 版番号 JSON もここ）
+STATIC_DIR = Path(__file__).parent / "static"
+_KAGE_RELEASE_PATH = STATIC_DIR / "kage_release.json"
+
+
+def _read_kage_release() -> dict:
+    """ヘッダー・/health・Notionエクスポートと同期する唯一の版情報"""
+    try:
+        raw = _KAGE_RELEASE_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        if isinstance(data, dict):
+            return data
+    except Exception as e:
+        logger.warning("[kage] kage_release.json read failed: %s", e)
+    return {"app_version": "0.0.0", "release_date": "", "summary": ""}
+
+
+_KAGE_APP_VERSION = str(_read_kage_release().get("app_version") or "0.0.0").strip()
+
+# Notion Memos に upsert する KAGE ドキュメント（タイトル固定・検索で特定）
+KAGE_NOTION_MEMO_STATIC = "[KAGE] 静的｜マニュアル・仕様"
+KAGE_NOTION_MEMO_DYNAMIC = "[KAGE] 動的｜バージョン・稼働情報"
+KAGE_NOTION_STATIC_FILE = Path(__file__).parent / "notion_docs" / "KAGE_STATIC.md"
+
 # ---------------------------------------------------------------------------
 # Profile キャッシュ（起動時に1回読み込み、更新時に再読込）
 # ---------------------------------------------------------------------------
@@ -79,7 +108,8 @@ def _fetch_profile_cached() -> list:
     start_cursor = None
     while has_more:
         body: dict = {
-            "sorts": [{"timestamp": "created_time", "direction": "ascending"}],
+            # 最近編集した関心ルールが先に効くよう、最終更新の新しい順
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
             "page_size": 100,
         }
         if start_cursor:
@@ -132,6 +162,9 @@ def _get_session(session_id: Optional[str]) -> tuple:
     CONVERSATIONS[sid] = {
         "msgs": msgs, "ts": now, "count": 0, "page_id": None,
         "bedtime_iso": None, "pending_task": None,
+        "last_task_page_id": None,
+        "last_task_title": None,
+        "pending_news_feedback": None,
     }
     return sid, msgs
 
@@ -148,17 +181,92 @@ def _add_to_session(sid: str, role: str, content: str):
         threading.Thread(target=_persist_session_bg, args=(sid,), daemon=True).start()
 
 
-def _build_history_text(sid: str) -> str:
+# 会話履歴の1メッセージ上限（予定の長文コピペが200文字で切れて「読めない」問題の対策）
+HISTORY_MSG_MAX_CHARS = int(os.environ.get("KAGE_HISTORY_MSG_MAX", "6000"))
+
+
+def _build_history_text(sid: str, max_chars_per_msg: Optional[int] = None) -> str:
     if sid not in CONVERSATIONS:
         return ""
+    limit = max_chars_per_msg if max_chars_per_msg is not None else HISTORY_MSG_MAX_CHARS
     msgs = CONVERSATIONS[sid]["msgs"][-MAX_HISTORY:]
     if not msgs:
         return ""
-    lines = ["## 直近の会話履歴"]
+    lines = ["## 直近の会話履歴（長い発言も省略せず参照すること）"]
     for m in msgs:
         prefix = "ボス" if m["role"] == "user" else "影"
-        lines.append(f"{prefix}: {m['content'][:200]}")
+        c = m.get("content") or ""
+        if len(c) > limit:
+            c = c[:limit] + "\n…（以降省略）"
+        lines.append(f"{prefix}: {c}")
     return "\n".join(lines)
+
+
+def _user_message_looks_like_schedule_share(c: str) -> bool:
+    """ボスがチャットに書いた時刻付き予定・今日の予定リストか（Notion未登録でも拾う）"""
+    if not c or len(c) < 10:
+        return False
+    if "今日の予定" in c or "本日の予定" in c:
+        return True
+    if "予定" in c and re.search(r"\d{1,2}:\d{2}", c):
+        return True
+    if re.search(r"\d{1,2}:\d{2}\s*[-ー～〜]", c) and re.search(
+        r"(ミーティング|定例|MTG|打ち合わせ|会議|Vision|RAG|zoom|Zoom)", c, re.I
+    ):
+        return True
+    if "この後" in c and "予定" in c:
+        return True
+    return False
+
+
+def _user_message_looks_like_plan_or_task_share(c: str) -> bool:
+    """時刻なしでも「今日やること・最優先・締切」など作業共有を拾う（Notion未同期の文脈用）"""
+    if _user_message_looks_like_schedule_share(c):
+        return True
+    if not c or len(c) < 16:
+        return False
+    t = c.replace(" ", "").replace("　", "")
+    if any(
+        k in t
+        for k in (
+            "最優先",
+            "ワークフロー",
+            "フロー作成",
+            "タスク",
+            "やることリスト",
+            "今日やる",
+            "本日やる",
+            "締切",
+            "提出し",
+            "明日まで",
+            "明日期限",
+        )
+    ):
+        return True
+    if ("明日" in t or "明後日" in t) and ("やる" in t or "する" in t or "タスク" in t or "予定" in t):
+        return True
+    return False
+
+
+def _collect_schedule_related_chat(sid: str, max_total_chars: int = 20000) -> str:
+    """セッション内のユーザー発言から、予定共有っぽい本文を抽出して連結"""
+    if sid not in CONVERSATIONS:
+        return ""
+    blocks: list[str] = []
+    for m in CONVERSATIONS[sid]["msgs"]:
+        if m.get("role") != "user":
+            continue
+        c = (m.get("content") or "").strip()
+        if not c or not _user_message_looks_like_plan_or_task_share(c):
+            continue
+        if not blocks or blocks[-1] != c:
+            blocks.append(c)
+    if not blocks:
+        return ""
+    joined = "\n\n---\n\n".join(blocks)
+    if len(joined) > max_total_chars:
+        joined = joined[-max_total_chars:] + "\n…（直近のみ）"
+    return joined
 
 
 def _load_session_from_notion(session_id: str) -> list:
@@ -175,7 +283,11 @@ def _load_session_from_notion(session_id: str) -> list:
         content_rt = results[0]["properties"].get("内容", {}).get("rich_text", [])
         if not content_rt:
             return []
-        raw = content_rt[0]["plain_text"]
+        raw = "".join(
+            (p.get("plain_text") or "") for p in content_rt if p.get("type") == "text"
+        )
+        if not raw:
+            raw = content_rt[0].get("plain_text") or ""
         msgs = json.loads(raw)
         logger.info("[session] Restored %d messages for %s from Notion", len(msgs), session_id)
         return msgs if isinstance(msgs, list) else []
@@ -192,20 +304,22 @@ def _persist_session_bg(sid: str):
             return
         recent = sess["msgs"][-MAX_HISTORY:]
         compact = json.dumps(recent, ensure_ascii=False)
-        if len(compact) > 1900:
-            while len(compact) > 1900 and recent:
+        persist_max = int(os.environ.get("KAGE_SESSION_PERSIST_MAX_JSON", "48000"))
+        if len(compact) > persist_max:
+            while len(compact) > persist_max and recent:
                 recent = recent[1:]
                 compact = json.dumps(recent, ensure_ascii=False)
 
-        today_str = date.today().isoformat()
+        today_str = _local_today().isoformat()
         first_msg = recent[0]["content"][:30] if recent else ""
         title = f"{today_str} {first_msg}"
+        content_prop = _rich_text_prop_chunked("内容", compact)
 
         if sess.get("page_id"):
             _notion_patch(f"/pages/{sess['page_id']}", {
                 "properties": {
                     **_title_prop(title),
-                    **_rich_text_prop("内容", compact),
+                    **content_prop,
                     **_date_prop("日付", today_str),
                 }
             })
@@ -213,7 +327,7 @@ def _persist_session_bg(sid: str):
             props = {
                 **_title_prop(title),
                 **_rich_text_prop("セッションID", sid),
-                **_rich_text_prop("内容", compact),
+                **content_prop,
                 **_date_prop("日付", today_str),
             }
             result = _notion_post("/pages", {"parent": {"database_id": DB["ChatLog"]}, "properties": props})
@@ -230,6 +344,15 @@ logger.info("[init] boss_profile.md loaded: %d chars", len(BOSS_PROFILE))
 # 日時回答の捏造防止用（環境変数 KAGE_TZ で変更可、既定 Asia/Tokyo）
 KAGE_TZ = os.environ.get("KAGE_TZ", "Asia/Tokyo")
 _WD_JA = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def _local_today() -> date:
+    """秘書の「今日」は KAGE_TZ 基準（サーバが UTC のとき date.today() とズレるのを防ぐ）"""
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+    except Exception:
+        tz = ZoneInfo("Asia/Tokyo")
+    return datetime.now(tz).date()
 
 
 def _now_clock_block() -> str:
@@ -288,17 +411,33 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 - 丁寧だが短い。「〜です」「〜しましょう」「〜ですね」止め
 - ボスの経歴・スキル・状況を踏まえた的確な助言をする
 - 優先度が高いものだけ伝える
-- データなしなら「まだ登録がありません」
+- データなしなら「まだ登録がありません」（ただし会話履歴に時刻付きの予定リストがあればそれは「あり」とみなす）
 - 会話履歴がある場合、文脈を踏まえて返答する。「さっき」「それ」等の指示語を正しく解決する
+- ボスが過去メッセージで「今日の予定」「15:00〜」のように列挙した内容は、Notionの予定と同等に扱う。Notionに無くても会話にあれば必ず引用して答える
+- 日付や曜日の断定は【現在の実日時】ブロックのみを正とする。過去の会話の「今日」は発言日基準であり、いまの「今日」と混同しない。混在する場合は一言で切り分ける
 - 「今日は何月何日」「今何時」「曜日は」等の質問には、メッセージ先頭の【現在の実日時】ブロックの値だけを答える。それ以外の年月日・時刻を出してはいけない
 - 睡眠ログのデータがあるとき、無理に触れなくてよいが、体調・ペースの相談ではさりげなく活かしてよい
 - タスクに「見積分（分）」が付いているデータは、優先度や時間の使い方の相談で具体的に活かしてよい
+- 世界史・哲学・一般教養・日本語の敬語・ビジネス作法など、ボス個人やNotionに紐づかない知識の質問には、学習済みの一般知識で的確に答える。一方、ボスの予定・契約・連絡先など固有の事実はデータに無ければ推測しない
+
+Slack・Teams・社内チャット・社内メールの文面を求められたとき：
+- **既定は社内向けの短さ**。「社内」「Slack」「同僚」「チーム内」などのニュアンスがあれば、取引先向けの長い敬体・過剰な前置きは避け、**2〜5行・コピペしやすい**トーンを優先する
+- ボスが「丁寧に」「対外向け」「クライアント」「お客様」などと言ったときだけ、改めてフォーマル版を出す
+- 件名・宛名が不明なときはプレースホルダ（〇〇）で示し、本文を短く済ませる
+- リスケ・欠席・依頼の一言は、結論→理由（短く）→お願いの順が読みやすい
 
 文書作成の依頼時：
 - 「まとめて」「書いて」「作って」等の依頼にはProfile DBの情報をフル活用する
 - 指定された文字数・形式に従う
 - ボスの視点で、正確な事実に基づいて作成する
 - 文書作成時は長文OK（通常の回答は短く）\
+
+■ 情報を引き出す秘書としての心得（エグゼクティブアシスタントの実務より抽象化）
+- 好み・優先度・境界は「察し」より**短い確認**で更新する。仮説は置いてよいが、断定で進めない
+- **具体単位**で聞く（テーマ名・頻度・深さ）。一度に質問は多くても**本質は一つ**に絞る
+- **タイミングと情報量**を尊重する（短文・要点・次の一手は一つまで）
+- フィードバックは**タイムリーに**受け止め、努力への一言を添え、否定だけで終わらせない
+- ボスが忙しいときは「あとで」「今は結構でよい」を尊重し、再開のフックだけ残す
 """
 
 THINK_SYSTEM_PROMPT = f"""\
@@ -313,10 +452,10 @@ THINK_SYSTEM_PROMPT = f"""\
 - ボスのCA業務・デジハリ講義・個人プロジェクトを横断的に把握する
 - データが空でも必ず出力する
 
-フォーマット：
+フォーマット（UI上「今すぐ」だけ大きく表示し、他は折りたたみになる）：
 
 【今すぐ】
-・（最優先1件、15文字以内）
+・（最優先はこの1行だけ。複数の「・」行は禁止。具体的なタスク名を短く）
 
 【今日中】
 ・〇〇
@@ -360,7 +499,12 @@ MORNING_SYSTEM_PROMPT = f"""\
 ・〇〇（3日以内の締切・返済日・引き落とし等。なければ省略）
 
 【ひとこと】
-（ボスの状況を踏まえた短い一言。天気・体調への気遣いなど）\
+（ボスの状況を踏まえた短い一言。天気・体調への気遣いなど）
+
+【今日のニュース】（任意・入力に RSS JSON があるときだけ）
+・1〜2文でテーマの雰囲気だけ。「◯◯と△△の話題があり、ご覧になりますか？」のように提案する
+・記事タイトル・URLの列挙はここではしない（詳細はボスが聞いたときに）
+・JSONが無い・空ならこのセクションは省略する\
 """
 
 OPENING_LINE_SYSTEM_PROMPT = f"""\
@@ -381,7 +525,7 @@ OPENING_LINE_SYSTEM_PROMPT = f"""\
 - 心を和らげる、落ち着いたトーン。前置き・箇条書き・見出し・改行は禁止。本文のみ1ブロックで出力\
 """
 
-app = FastAPI(title="Notion Secretary API", version="1.0.0")
+app = FastAPI(title="Notion Secretary API", version=_KAGE_APP_VERSION)
 
 # CORS
 app.add_middleware(
@@ -393,7 +537,6 @@ app.add_middleware(
 )
 
 # 静的ファイル
-STATIC_DIR = Path(__file__).parent / "static"
 if STATIC_DIR.exists():
     app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
@@ -421,6 +564,16 @@ def _title_prop(text: str) -> dict:
 
 def _rich_text_prop(key: str, text: str) -> dict:
     return {key: {"rich_text": [{"text": {"content": text}}]}}
+
+
+def _rich_text_prop_chunked(key: str, text: str, chunk: int = 1990) -> dict:
+    """Notion rich_text は1セグメント約2000文字上限のため分割して保存"""
+    if not text:
+        return _rich_text_prop(key, "")
+    segs = []
+    for i in range(0, len(text), chunk):
+        segs.append({"type": "text", "text": {"content": text[i : i + chunk]}})
+    return {key: {"rich_text": segs}}
 
 
 def _date_prop(key: str, date_str: str) -> dict:
@@ -490,6 +643,292 @@ def _ensure_session_bedtime(sid: str) -> None:
 def _ensure_session_pending_task(sid: str) -> None:
     if sid in CONVERSATIONS and "pending_task" not in CONVERSATIONS[sid]:
         CONVERSATIONS[sid]["pending_task"] = None
+
+
+def _ensure_session_last_task(sid: str) -> None:
+    if sid not in CONVERSATIONS:
+        return
+    s = CONVERSATIONS[sid]
+    if "last_task_page_id" not in s:
+        s["last_task_page_id"] = None
+    if "last_task_title" not in s:
+        s["last_task_title"] = None
+
+
+def _ensure_session_news_feedback(sid: str) -> None:
+    if sid in CONVERSATIONS:
+        CONVERSATIONS[sid].setdefault("pending_news_feedback", None)
+
+
+# 朝ニュース後の感想フロー（セッションに pending を立て、チャットで回収 → Notion [ニュースFB]）
+NEWS_FEEDBACK_TTL_SEC = int(os.environ.get("KAGE_NEWS_FEEDBACK_TTL_SEC", str(86400 * 2)))
+
+
+def _blocking_news_feedback_message(text: str) -> bool:
+    t = text.strip()
+    prefixes = (
+        "メモ:", "メモ：", "アイデア:", "アイデア：", "バグ:", "バグ：",
+        "不具合:", "不具合：", "整理して", "片付けて",
+    )
+    return any(t.startswith(p) for p in prefixes)
+
+
+def _probably_news_feedback_reply(text: str) -> bool:
+    """予定確認などへ誤爆しないよう、ニュース感想っぽいときだけ True"""
+    if _blocking_news_feedback_message(text):
+        return False
+    if len(text) > 480:
+        return False
+    if len(text) < 40 and ("予定" in text or "タスク" in text):
+        return False
+    if "？" in text or "?" in text:
+        if any(
+            k in text
+            for k in ("予定", "タスク", "スケジュール", "いつ", "何時", "教えて", "確認", "一覧", "今日の")
+        ):
+            return False
+    return True
+
+
+def _quick_skip_news_feedback(text: str) -> bool:
+    t = text.strip().replace("。", "").replace("です", "")
+    if len(t) > 18:
+        return False
+    hits = (
+        "特にない", "特になし", "なし", "結構", "大丈夫", "スキップ",
+        "今はいい", "今いい", "またあと", "また後で", "ok", "OK", "おk",
+    )
+    if t.lower() in {h.lower() for h in hits} or t in hits:
+        return True
+    # 「ない」単体は誤爆しやすいので短文かつニュース文脈っぽいときだけ
+    return t == "ない" or t == "ないです"
+
+
+def _parse_news_feedback_via_gemini(utterance: str, headlines: list[str]) -> Optional[dict]:
+    if not GEMINI_API_KEY:
+        return None
+    hl = "\n".join(f"- {h}" for h in headlines[:10] if h) or "（見出し情報なし）"
+    user = f"""朝に見せたRSS候補の見出し:
+{hl}
+
+ボスの発言:
+{utterance[:2000]}
+
+JSONのみ（他文字禁止）で返す:
+{{
+  "skip": true または false,
+  "more": ["もっと比重を上げたいテーマの短いフレーズ", "..."],
+  "less": ["減らしたいテーマ", "..."],
+  "brief": "趣向を40文字以内で"
+}}
+
+skipは「特にない」「大丈夫」「今はいい」等のとき true。skipがtrueなら more/less は []。
+more/less は各最大5件。日本語2〜12文字程度のフレーズを推奨。"""
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(
+            gemini_url,
+            json={
+                "contents": [{"parts": [{"text": user}]}],
+                "generationConfig": {
+                    "response_mime_type": "application/json",
+                    "temperature": 0.2,
+                },
+            },
+            timeout=22,
+        )
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        data = json.loads(raw.strip())
+    except Exception as e:
+        logger.warning("[news_fb] gemini parse failed: %s", e)
+        return None
+    if not isinstance(data, dict):
+        return None
+    return data
+
+
+def _save_news_feedback_notion(payload: dict) -> bool:
+    try:
+        try:
+            tz = ZoneInfo(KAGE_TZ)
+        except Exception:
+            tz = ZoneInfo("Asia/Tokyo")
+        stamp = datetime.now(tz).strftime("%Y-%m-%d %H:%M")
+        title = f"[ニュースFB] {stamp}"
+        body = json.dumps(payload, ensure_ascii=False)
+        props = {**_title_prop(title)}
+        props.update(_rich_text_prop_chunked("内容", body))
+        _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
+        return True
+    except Exception as e:
+        logger.error("[news_fb] notion save failed: %s", e)
+        return False
+
+
+def _handle_pending_news_feedback(sid: str, text: str) -> Optional[dict]:
+    """pending 時の1発言をニュース感想として処理。不要なら None（通常チャットへ）"""
+    _ensure_session_news_feedback(sid)
+    if sid not in CONVERSATIONS:
+        return None
+    pend = CONVERSATIONS[sid].get("pending_news_feedback")
+    if not pend:
+        return None
+    if time.time() - float(pend.get("set_at", 0)) > NEWS_FEEDBACK_TTL_SEC:
+        CONVERSATIONS[sid]["pending_news_feedback"] = None
+        return None
+    if not _probably_news_feedback_reply(text):
+        CONVERSATIONS[sid]["pending_news_feedback"] = None
+        return None
+
+    headlines = list(pend.get("headlines") or [])
+
+    if _quick_skip_news_feedback(text):
+        CONVERSATIONS[sid]["pending_news_feedback"] = None
+        return {
+            "intent": "news_feedback",
+            "message": "承知しました。またニュースの好みを調整したくなったら、いつでもお声がけください。",
+            "saved": False,
+        }
+
+    parsed = _parse_news_feedback_via_gemini(text, headlines)
+    if not parsed:
+        CONVERSATIONS[sid]["pending_news_feedback"] = None
+        return None
+
+    if parsed.get("skip") is True:
+        CONVERSATIONS[sid]["pending_news_feedback"] = None
+        return {
+            "intent": "news_feedback",
+            "message": "承知しました。またの機会にでも、ひとこといただけますと助かります。",
+            "saved": False,
+        }
+
+    more = [str(x).strip() for x in (parsed.get("more") or []) if str(x).strip()][:5]
+    less = [str(x).strip() for x in (parsed.get("less") or []) if str(x).strip()][:5]
+    brief = (parsed.get("brief") or "").strip()[:120]
+    payload = {"more": more, "less": less, "brief": brief, "user_raw": text[:800]}
+    saved = _save_news_feedback_notion(payload)
+    CONVERSATIONS[sid]["pending_news_feedback"] = None
+
+    msg = "ありがとうございます。"
+    if saved:
+        msg += "趣向を Notion メモ（[ニュースFB]）に残し、次回以降のニュースの並びに反映します。"
+    else:
+        msg += "お言葉は伺いましたが、メモ保存に失敗しました。お手数ですがまたあとでお願いできますと幸いです。"
+    if more:
+        msg += f"（重め: {', '.join(more[:3])}）"
+    if less:
+        msg += f"（控えめ: {', '.join(less[:3])}）"
+    return {"intent": "news_feedback", "message": msg, "saved": saved}
+
+
+def _note_last_task(sid: str, page_id: Optional[str], title: str) -> None:
+    """直近に作成したタスク（「終わった」でアーカイブしやすくする）"""
+    _ensure_session_last_task(sid)
+    if sid not in CONVERSATIONS:
+        return
+    CONVERSATIONS[sid]["last_task_page_id"] = page_id or None
+    CONVERSATIONS[sid]["last_task_title"] = (title or "")[:200]
+
+
+def _looks_like_slack_or_forward_paste(text: str) -> bool:
+    """Slack・チャットツールからのコピペっぽい長文か（タスク化のヒント）"""
+    if len(text) < 50:
+        return False
+    if re.search(r"\[\d{1,2}:\d{2}\]", text):
+        return True
+    if re.search(r"@[\w\u3040-\u30ff\u4e00-\u9fff\u3000-\u303f]+/", text):
+        return True
+    if re.search(
+        r"[\w\u3040-\u30ff\u4e00-\u9fff]{2,20}/[a-z0-9_]{2,50}\(",
+        text,
+        re.I,
+    ):
+        return True
+    if text.count("\n") >= 3 and re.search(r"https?://\S+", text):
+        return True
+    return False
+
+
+def _extract_task_from_forwarded_paste(text: str) -> Optional[dict]:
+    """
+    転送・Slack貼り付けからタスク1件をJSON抽出。失敗時は None。
+    戻り: {title, content, date, confidence}
+    """
+    if not GEMINI_API_KEY:
+        return None
+    today_str = _local_today().isoformat()
+    instruction = f"""\
+次のテキストは、Slack・Teams・メール等からコピーした「依頼・連絡」です。
+ボスが実行すべきアクションを1つのタスクに要約してください。
+
+今日の日付は {today_str} です。文中の「3/25」「3月25日」等は今年として解釈してください。
+
+JSONのみ返す（他の文字禁止）:
+{{
+  "title": "60文字以内。誰からの依頼か分かれば（氏名）を短く。期限があればタイトルに含める",
+  "content": "箇条書き風で: 依頼者・期限・やること・URL・注意点。元文の要約。800文字以内",
+  "date": "YYYY-MM-DD（期限日。なければ今日）",
+  "confidence": "high または medium または low"
+}}
+
+ボスに明確な「やること」が取れない場合は title を空文字にしてください。
+"""
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(
+            gemini_url,
+            json={
+                "contents": [{"parts": [{"text": instruction + "\n\n---\n\n" + text[:12000]}]}],
+                "generationConfig": {
+                    "response_mime_type": "application/json",
+                    "temperature": 0.15,
+                },
+            },
+            timeout=30,
+        )
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        data = json.loads(raw.strip())
+    except Exception as e:
+        logger.error("[slack_task] extract failed: %s", e)
+        return None
+
+    if not isinstance(data, dict):
+        return None
+    title = (data.get("title") or "").strip()
+    if not title or len(title) < 2:
+        return None
+    conf = str(data.get("confidence") or "medium").strip().lower()
+    if conf in ("low", "低"):
+        logger.info("[slack_task] low confidence, skipping auto-save: %s", title[:40])
+        return None
+    content = (data.get("content") or "").strip()
+    d = (data.get("date") or today_str).strip()[:10]
+    if len(d) != 10 or d[4] != "-" or d[7] != "-":
+        d = today_str
+    return {"title": title[:100], "content": content[:2000], "date": d, "confidence": conf}
+
+
+def _is_vague_done_phrase(s: str) -> bool:
+    """「終わったよ」など対象名のない完了宣言か"""
+    t = (s or "").strip().replace(" ", "").replace("　", "").lower()
+    if not t:
+        return True
+    return bool(
+        re.match(
+            r"^(終わった(よ|ね|な)?|おわった(よ)?|完了(した|しました|だ)?|"
+            r"やった(よ)?|もう終わり|終わりました|済み(ました)?|完了です|終了した|おしまい)$",
+            t,
+        )
+    )
 
 
 def _parse_duration_minutes(text: str) -> Optional[int]:
@@ -577,12 +1016,13 @@ def _handle_pending_task_reply(sid: str, text: str) -> Optional[dict]:
         return {"intent": "task", "message": "かしこまりました。タスク登録は取りやめました。", "saved": False}
     if any(k in raw for k in ("わからない", "さっぱり", "未定", "まだわから", "不明", "わからん")) and len(raw) < 28:
         try:
-            _notion_save_task(
+            page = _notion_save_task(
                 pt.get("title") or "タスク",
                 pt.get("content") or "",
                 None,
-                pt.get("date") or date.today().isoformat(),
+                pt.get("date") or _local_today().isoformat(),
             )
+            _note_last_task(sid, page.get("id") if isinstance(page, dict) else None, pt.get("title") or "タスク")
             CONVERSATIONS[sid]["pending_task"] = None
             tit = (pt.get("title") or "")[:45]
             return {
@@ -596,12 +1036,13 @@ def _handle_pending_task_reply(sid: str, text: str) -> Optional[dict]:
     if mins is None:
         return None
     try:
-        _notion_save_task(
+        page = _notion_save_task(
             pt.get("title") or "タスク",
             pt.get("content") or "",
             mins,
-            pt.get("date") or date.today().isoformat(),
+            pt.get("date") or _local_today().isoformat(),
         )
+        _note_last_task(sid, page.get("id") if isinstance(page, dict) else None, pt.get("title") or "タスク")
         CONVERSATIONS[sid]["pending_task"] = None
         tit = (pt.get("title") or "")[:45]
         return {
@@ -611,6 +1052,44 @@ def _handle_pending_task_reply(sid: str, text: str) -> Optional[dict]:
         }
     except Exception as e:
         return {"intent": "task", "message": f"保存に失敗しました: {e}", "saved": False}
+
+
+# 起床あいさつに添える、寝起きの体にやさしい豆知識（ランダム1つ）
+MORNING_WELLNESS_TRIVIA_JA = (
+    "起床後すぐのコップ1杯の水は、夜中に失われた水分の補給になります。急がず常温でどうぞ。",
+    "朝日を2〜3分浴びると、体内時計のリセットに役立つことが研究で示されています。",
+    "ベッドから出たあと、軽く首・肩を回すだけでも血流が良くなり、目覚めがスムーズになりやすいです。",
+    "カフェインは起床から約90分後が、自然な覚醒リズムと相性が良いとされる説もあります。",
+    "深い呼吸（4秒吸って6秒吐く）を数回すると、副交感神経が優位になりやすくなります。",
+    "朝食は無理に多くなくてよいですが、タンパク質を少し入れると午前の集中が続きやすいです。",
+    "スマホは寝室から離し、まず軽いストレッチから始めると目の疲れを減らせます。",
+    "こむら返りを防ぐには、就寝前の水分と起床後のふくらはぎの軽い伸ばしが有効なことが多いです。",
+    "体温は起床直後が低めなので、急な激しい運動よりまず軽い動きから始めるのが無難です。",
+    "朝のうがいは、睡眠中に乾いた喉のケアになります。温すぎず冷たすぎない水がおすすめです。",
+    "ビタミンDの材料になる日光は、曇り日でも少量は届くと言われます。短い散歩も効果的です。",
+    "起床後1時間以内に自然光を浴びると、夜の眠りの質の改善に寄与する報告があります。",
+    "腹筋より先に、背中を丸めて伸ばす「猫背ストレッチ」は、寝起きの背中のこりに効きやすいです。",
+    "朝のコーヒー1杯目の前に、水を一口飲むと胃への刺激が和らぎやすいです。",
+    "睡眠負債は一晩で完全には埋まりません。今日は無理せず、今夜は早めの就寝を意識してみてください。",
+    "足首をグルグル回すと、下半身の血流が促され、むくみ予防にもつながります。",
+    "朝食を抜く日は、昼に血糖が急上がりしにくいようタンパク質と野菜を意識するとよいです。",
+    "枕を高くしすぎると首に負担がかかることがあります。横寝なら耳と肩の高さが目安です。",
+    "起床直後の強い光のスマホ画面は、まぶたの筋肉のこわばりを招きやすいので少し離してみてください。",
+    "ヨーグルトや発酵食品は、腸のリズムを整える助けになることがあります（個人差あり）。",
+    "短い昼寝（10〜20分）は回復に効きますが、30分を超えると夜眠れなくなることがあるので注意です。",
+    "朝のストレッチで「ふくらはぎを壁に押し当てる」姿勢は、血流改善の定番です。",
+    "室温が低すぎると浅い眠りになりやすいと言われます。寝起きの寒さ対策も睡眠の質に関わります。",
+    "起床後、窓を開けて換気すると、二酸化炭素濃度が下がり頭がすっきりしやすいです。",
+)
+
+
+def _random_morning_wellness_line() -> str:
+    return random.choice(MORNING_WELLNESS_TRIVIA_JA)
+
+
+def _sleep_wake_message_with_trivia(core: str) -> str:
+    """起床メイン文 + ランダムな体に良い豆知識"""
+    return f"{core.rstrip()}\n\n🌅 {_random_morning_wellness_line()}"
 
 
 def _handle_sleep_bedtime(sid: str, text: str) -> dict:
@@ -653,15 +1132,24 @@ def _handle_sleep_bedtime(sid: str, text: str) -> dict:
                 CONVERSATIONS[sid]["bedtime_iso"] = now_iso
             return {
                 "intent": "sleep_bedtime",
-                "message": f"Notionに書き込めなかったため、この端末のセッションに就寝時刻だけ保存しました。睡眠DBを確認してください。（{e}）",
+                "message": (
+                    f"Notionに書き込めなかったため、この端末のセッションに就寝時刻だけ保存しました（タブを閉じると消えます）。"
+                    f"睡眠DBのプロパティ名・権限を確認してください。（{e}）"
+                ),
                 "saved": False,
             }
 
+    had_bedtime = bool(sid in CONVERSATIONS and CONVERSATIONS[sid].get("bedtime_iso"))
     if sid in CONVERSATIONS:
         CONVERSATIONS[sid]["bedtime_iso"] = now_iso
+    verb = "就寝時刻を更新しました" if had_bedtime else "就寝を記録しました"
     return {
         "intent": "sleep_bedtime",
-        "message": "就寝を記録しました（睡眠DB未設定のため、このブラウザのセッションのみ）。Notionに残すには NOTION_DB_SLEEP を設定してください。",
+        "message": (
+            f"{verb}（睡眠Notion DB未設定のため、このブラウザのセッション内だけ）。"
+            "タブを閉じる・別端末では消えます。永続保存は環境変数 NOTION_DB_SLEEP に睡眠DBのIDを設定してください。"
+            "おやすみなさいませ。"
+        ),
         "saved": False,
     }
 
@@ -724,10 +1212,11 @@ def _handle_sleep_wake(sid: str, text: str) -> dict:
                 note = "（やや短めの睡眠として記録しました）"
             elif mins > 840:
                 note = "（長めの休息でした）"
-            return _reply(
-                f"おはようございます。およそ{_fmt_duration_mins(mins)}の休息でした。Notionの睡眠ログに記録しました。{note}",
-                True,
+            core = (
+                f"おはようございます。およそ{_fmt_duration_mins(mins)}の休息でした。"
+                f"Notionの睡眠ログに、起床時刻・睡眠分（分）を保存しました。{note}"
             )
+            return _reply(_sleep_wake_message_with_trivia(core), True)
         except Exception as e:
             logger.error("[sleep] wake notion error: %s", e)
             if sess_start:
@@ -735,10 +1224,11 @@ def _handle_sleep_wake(sid: str, text: str) -> dict:
                 if sid in CONVERSATIONS:
                     CONVERSATIONS[sid]["bedtime_iso"] = None
                 if mins >= 5:
-                    return _reply(
-                        f"おはようございます。およそ{_fmt_duration_mins(mins)}です。Notion保存に失敗したため、この端末の記録のみクリアしました。（{e}）",
-                        False,
+                    core = (
+                        f"おはようございます。およそ{_fmt_duration_mins(mins)}です。"
+                        f"Notion保存に失敗したため、この端末の就寝記録のみクリアしました。（{e}）"
                     )
+                    return _reply(_sleep_wake_message_with_trivia(core), False)
             return _reply(f"起床の記録に失敗しました: {e}", False)
 
     if sess_start:
@@ -747,10 +1237,12 @@ def _handle_sleep_wake(sid: str, text: str) -> dict:
             CONVERSATIONS[sid]["bedtime_iso"] = None
         if mins < 5:
             return _reply("まだ数分しか経っていません。", False)
-        return _reply(
-            f"おはようございます。およそ{_fmt_duration_mins(mins)}でした（Notion未設定のため端末のみ）。",
-            False,
+        core = (
+            f"おはようございます。およそ{_fmt_duration_mins(mins)}でした。"
+            "（睡眠Notion DB未設定のため、この端末のセッションだけで計算。タブを閉じると就寝記録は消えます。"
+            "永続化は NOTION_DB_SLEEP を設定してください）"
         )
+        return _reply(_sleep_wake_message_with_trivia(core), False)
 
     return _reply(
         "就寝の記録がありません。「おやすみ」で就寝を付けてから、「おはよう」で起床をお伝えください。",
@@ -791,15 +1283,23 @@ def _archive_page(page_id: str) -> bool:
         return False
 
 
-def _search_and_archive(title_query: str) -> dict:
-    """タイトルで全DBを検索し、一致するページをアーカイブ"""
+# 完了時は Tasks を先に検索（メモよりタスク完了が多いため）
+_DB_ARCHIVE_SEARCH_ORDER = ("Tasks", "Memos", "Ideas", "Schedule", "Profile", "Sleep")
+
+
+def _search_and_archive(title_query: str) -> list:
+    """タイトルでDBを検索。Tasks優先。一致ページのリストを返す"""
     found = []
-    for db_name, db_id in DB.items():
-        if db_name in ("ChatLog",) or not (str(db_id or "").strip()):
+    q = (title_query or "").strip()
+    if not q:
+        return found
+    for db_name in _DB_ARCHIVE_SEARCH_ORDER:
+        db_id = DB.get(db_name)
+        if db_name in ("ChatLog", "Debug") or not (str(db_id or "").strip()):
             continue
         try:
             data = _notion_post(f"/databases/{db_id}/query", {
-                "filter": {"property": "名前", "title": {"contains": title_query}},
+                "filter": {"property": "名前", "title": {"contains": q}},
                 "page_size": 5,
             })
             for row in data.get("results", []):
@@ -830,6 +1330,14 @@ class MemoRequest(BaseModel):
     title: str
     content: str = ""
 
+
+class KageNotionSyncBody(BaseModel):
+    """POST /admin/kage-notion-sync … 既定は静的・動的どちらも同期"""
+
+    static: bool = True
+    dynamic: bool = True
+
+
 # ---------------------------------------------------------------------------
 # エンドポイント
 # ---------------------------------------------------------------------------
@@ -841,14 +1349,235 @@ def root():
 
 @app.get("/health")
 def health():
+    rel = _read_kage_release()
+    ver = str(rel.get("app_version") or "0.0.0").strip()
     return {
         "status": "ok",
-        "version": "2026-03-24d",
+        "version": ver,
+        "kage_app_version": ver,
+        "release_date": rel.get("release_date") or "",
+        "release_summary": rel.get("summary") or "",
         "notion_api_key_set": bool(API_KEY),
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
         "sleep_db_configured": _sleep_db_configured(),
+        "kage_public_url": KAGE_PUBLIC_URL or None,
     }
+
+
+@app.get("/meta")
+def kage_meta():
+    """KAGE フロント・デプロイ情報（人間・他ツール向け）"""
+    rel = _read_kage_release()
+    base = (KAGE_PUBLIC_URL or "").strip().rstrip("/")
+    return {
+        "kage_app_version": rel.get("app_version"),
+        "release_date": rel.get("release_date"),
+        "summary": rel.get("summary"),
+        "kage_public_url": base or None,
+        "paths": {
+            "app_ui": "/app",
+            "health": "/health",
+            "meta": "/meta",
+            "notion_export": "/meta/notion-export",
+            "static_release": "/static/kage_release.json",
+            "kage_release_api": "/api/kage-release.json",
+            "admin_notion_sync": "/admin/kage-notion-sync",
+            "kage_static_doc": "/docs/kage-static",
+        },
+        "release_file": "notion-secretary-api/static/kage_release.json",
+    }
+
+
+@app.get("/meta/notion-export", response_class=PlainTextResponse)
+def kage_meta_notion_export():
+    """Notion にそのまま貼れる運用メモ（ページまたはデータベースの本文にコピー）"""
+    rel = _read_kage_release()
+    ver = str(rel.get("app_version") or "0.0.0").strip()
+    rdate = rel.get("release_date") or "—"
+    summ = rel.get("summary") or "—"
+    base = (KAGE_PUBLIC_URL or "").strip().rstrip("/")
+    if base:
+        origin = base
+        app_url = f"{origin}/app"
+        health_u = f"{origin}/health"
+        meta_u = f"{origin}/meta"
+        export_u = f"{origin}/meta/notion-export"
+    else:
+        origin = "https://（本番URL・オリジンを記入）"
+        app_url = f"{origin}/app"
+        health_u = f"{origin}/health"
+        meta_u = f"{origin}/meta"
+        export_u = f"{origin}/meta/notion-export"
+    lines = [
+        "## KAGE（秘書アプリ）",
+        "",
+        f"- **アプリバージョン**: v{ver}",
+        f"- **リリース日**: {rdate}",
+        f"- **この版のメモ**: {summ}",
+        "",
+        "### URL",
+        f"- **本番のルート / API**: {origin}",
+        f"- **静的マニュアル（ブラウザ・Notion不要）**: `{origin}/docs/kage-static`",
+        f"- **チャット画面（PWA想定）**: {app_url}",
+        f"- **ヘルス確認**: {health_u} （JSON に version / キー設定状況）",
+        f"- **メタ情報**: {meta_u}",
+        "",
+        "> KAGE_PUBLIC_URL を .env に入れてデプロイすると、上記 URL が実ドメインで埋まります。",
+        "",
+        "### 主な API（参考）",
+        "- `POST /chat` … メイン会話・Notion保存",
+        "- `GET /morning` … 朝ブリーフ",
+        "- `GET /opening` … 起動ひと言",
+        "- `GET /brain` … Notionブレインデータ",
+        "- `GET /news/digest` … RSSダイジェスト",
+        "",
+        "### バージョンを上げる場所（開発者向け）",
+        "- リポジトリの `notion-secretary-api/static/kage_release.json` の **`app_version`**（ここが唯一のソース）",
+        "- **コードや文言を変えたら必ず版を上げる**（デプロイのたびに追従しやすくするため）。",
+        "- 目安: 大きい改修は `0.15` → `0.20` や `0.201` のようにまとまりで上げる。細かい修正は `0.144` → `0.145` のように末位だけ進める。",
+        "- デプロイ後、ヘッダーの **v{ver}** と `{health_u}` の `version` が一致することを確認。",
+        "",
+        "### Notion Memos で見る（静的／動的を分離）",
+        "- `POST {origin}/admin/kage-notion-sync` … ヘッダー `X-Kage-Admin-Secret: <KAGE_NOTION_SYNC_SECRET>`",
+        "- 作成・更新されるメモの**名前（タイトル）**:",
+        "  - `[KAGE] 静的｜マニュアル・仕様` … Git の `notion_docs/KAGE_STATIC.md` を反映（手編集は Git 側）",
+        "  - `[KAGE] 動的｜バージョン・稼働情報` … 版・URL・キー有無など（**同期のたびに上書き**）",
+        "",
+        "---",
+        f"_このブロックの取得元: {export_u}_",
+    ]
+    return "\n".join(lines)
+
+
+def _kage_docs_database_id() -> str:
+    """KAGE ドキュメント用 Memos DB（未指定なら既定の Memos）"""
+    return (os.environ.get("NOTION_KAGE_DOCS_DB", "") or DB.get("Memos") or "").strip()
+
+
+def _notion_memo_page_id_by_title(database_id: str, exact_title: str) -> Optional[str]:
+    data = _notion_post(
+        f"/databases/{database_id}/query",
+        {
+            "filter": {"property": "名前", "title": {"equals": exact_title}},
+            "page_size": 1,
+        },
+    )
+    rows = data.get("results") or []
+    return rows[0]["id"] if rows else None
+
+
+def _notion_upsert_memo_body(database_id: str, title: str, body: str) -> dict:
+    props_body = _rich_text_prop_chunked("内容", body)
+    pid = _notion_memo_page_id_by_title(database_id, title)
+    if pid:
+        _notion_patch(f"/pages/{pid}", {"properties": {"内容": props_body["内容"]}})
+        return {"page_id": pid, "action": "updated", "title": title}
+    props = {**_title_prop(title), **props_body}
+    res = _notion_post("/pages", {"parent": {"database_id": database_id}, "properties": props})
+    return {"page_id": res.get("id"), "action": "created", "title": title}
+
+
+def _build_kage_dynamic_notion_body() -> str:
+    rel = _read_kage_release()
+    ver = str(rel.get("app_version") or "0.0.0").strip()
+    base = (KAGE_PUBLIC_URL or "").strip().rstrip("/") or "（KAGE_PUBLIC_URL 未設定）"
+    lines = [
+        "## KAGE 動的情報（サーバが上書き更新）",
+        "",
+        "> **手で編集しないでください。** 次回の同期で消えます。",
+        "",
+        f"- **app_version**: {ver}",
+        f"- **release_date**: {rel.get('release_date') or '—'}",
+        f"- **summary**: {rel.get('summary') or '—'}",
+        f"- **KAGE_PUBLIC_URL**: {base}",
+    ]
+    try:
+        tz = ZoneInfo(KAGE_TZ)
+        now = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+        lines.append(f"- **サーバ時刻（{KAGE_TZ}）**: {now}")
+    except Exception:
+        pass
+    lines.extend(
+        [
+            f"- **NOTION_API_KEY**: {'設定あり' if API_KEY else 'なし'}",
+            f"- **GEMINI_API_KEY**: {'設定あり' if GEMINI_API_KEY else 'なし'}",
+            f"- **GEMINI_MODEL**: {GEMINI_MODEL}",
+            f"- **睡眠DB**: {'設定あり' if _sleep_db_configured() else 'なし'}",
+            "",
+            "### リンク",
+            f"- チャット: `{base}/app`",
+            f"- health: `{base}/health`",
+            f"- meta: `{base}/meta`",
+            f"- Notion貼付用: `{base}/meta/notion-export`",
+            "",
+            "### 同期",
+            "- 静的マニュアル: リポジトリ `notion_docs/KAGE_STATIC.md` → `[KAGE] 静的｜マニュアル・仕様`",
+            "- 本メモ: `POST /admin/kage-notion-sync`（`dynamic: true`）",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def sync_kage_docs_to_notion(*, include_static: bool = True, include_dynamic: bool = True) -> dict:
+    """
+    Memos DB に静的・動的の2メモを upsert。
+    呼び出し元で NOTION キー・DB の存在を確認すること。
+    """
+    db_id = _kage_docs_database_id()
+    if not db_id:
+        raise HTTPException(status_code=503, detail="Memos（または NOTION_KAGE_DOCS_DB）が未設定です")
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="NOTION_API_KEY が未設定です")
+
+    out: dict = {"database_id": db_id, "static": None, "dynamic": None}
+    if include_static:
+        if not KAGE_NOTION_STATIC_FILE.is_file():
+            out["static"] = {"error": f"not found: {KAGE_NOTION_STATIC_FILE}", "title": KAGE_NOTION_MEMO_STATIC}
+        else:
+            text = KAGE_NOTION_STATIC_FILE.read_text(encoding="utf-8")
+            out["static"] = _notion_upsert_memo_body(db_id, KAGE_NOTION_MEMO_STATIC, text)
+    if include_dynamic:
+        out["dynamic"] = _notion_upsert_memo_body(db_id, KAGE_NOTION_MEMO_DYNAMIC, _build_kage_dynamic_notion_body())
+    return out
+
+
+@app.post("/admin/kage-notion-sync")
+def admin_kage_notion_sync(
+    x_kage_admin_secret: Optional[str] = Header(None, alias="X-Kage-Admin-Secret"),
+    body: KageNotionSyncBody = KageNotionSyncBody(),
+):
+    """
+    Notion Memos に KAGE の静的マニュアル・動的ステータスを書き込む。
+    ヘッダー `X-Kage-Admin-Secret: <KAGE_NOTION_SYNC_SECRET>` 必須。
+    本文例: `{"static": true, "dynamic": true}` ／ 動的だけ `{"static": false, "dynamic": true}`
+    """
+    secret = os.environ.get("KAGE_NOTION_SYNC_SECRET", "").strip()
+    if not secret or (x_kage_admin_secret or "").strip() != secret:
+        raise HTTPException(status_code=403, detail="X-Kage-Admin-Secret が不正、または KAGE_NOTION_SYNC_SECRET 未設定です")
+    result = sync_kage_docs_to_notion(include_static=body.static, include_dynamic=body.dynamic)
+    result["ok"] = True
+    result["memo_titles"] = {
+        "static": KAGE_NOTION_MEMO_STATIC,
+        "dynamic": KAGE_NOTION_MEMO_DYNAMIC,
+    }
+    for _k in ("static", "dynamic"):
+        _b = result.get(_k)
+        if isinstance(_b, dict) and _b.get("page_id"):
+            pid = _b["page_id"].replace("-", "")
+            _b["notion_open_url"] = f"https://www.notion.so/{pid}"
+    return result
+
+
+@app.get("/docs/kage-static", response_class=PlainTextResponse)
+def serve_kage_static_markdown():
+    """
+    静的マニュアル本体（Markdown テキスト）。
+    Notion に `[KAGE] 静的｜マニュアル・仕様` がまだ無くても、ブラウザでこの URL を開けば読める。
+    """
+    if not KAGE_NOTION_STATIC_FILE.is_file():
+        raise HTTPException(status_code=404, detail="notion_docs/KAGE_STATIC.md が見つかりません")
+    return KAGE_NOTION_STATIC_FILE.read_text(encoding="utf-8")
 
 
 @app.get("/models")
@@ -902,9 +1631,54 @@ def add_memo(req: MemoRequest):
 # 内部データ取得関数（エンドポイント＋/chatから再利用）
 # ---------------------------------------------------------------------------
 
+# 「今日のタスク」で拾う期限ウィンドウ（Slack等は期限=締切日のため、今日≠日付でも一覧に出す）
+TODAY_TASK_WINDOW_PAST_DAYS = int(os.environ.get("KAGE_TODAY_TASK_PAST_DAYS", "14"))
+TODAY_TASK_WINDOW_FUTURE_DAYS = int(os.environ.get("KAGE_TODAY_TASK_FUTURE_DAYS", "30"))
+
+
+def _task_status_skip_set() -> set:
+    raw = os.environ.get("KAGE_TODAY_SKIP_TASK_STATUS", "完了,Done,done")
+    return {s.strip() for s in raw.split(",") if s.strip()}
+
+
+def _task_row_to_summary(row: dict) -> Optional[dict]:
+    """Tasks DB の1行を要約 dict に。アーカイブは None"""
+    if row.get("archived"):
+        return None
+    title = row["properties"]["名前"]["title"]
+    name = title[0]["plain_text"] if title else "(無題)"
+    date_prop = row["properties"].get("日付", {}).get("date", {}) or {}
+    d = date_prop.get("start", "") if date_prop else ""
+    status_prop = row["properties"].get("ステータス", {}).get("select")
+    status = status_prop["name"] if status_prop else "未設定"
+    if status in _task_status_skip_set():
+        return None
+    est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
+    return {"title": name, "date": d, "status": status, "minutes": est}
+
+
+def _fetch_recent_memo_snippets(limit: int = 10) -> list:
+    """直近メモ（今日の作業の手がかり。タスクに日付が無い場合の補助）"""
+    data = _notion_post(f"/databases/{DB['Memos']}/query", {
+        "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+        "page_size": min(limit, 20),
+    })
+    out = []
+    for row in data.get("results", []):
+        title = row["properties"]["名前"]["title"]
+        name = title[0]["plain_text"] if title else "(無題)"
+        content_rt = row["properties"].get("内容", {}).get("rich_text", [])
+        content = content_rt[0]["plain_text"] if content_rt else ""
+        out.append({"title": name, "content": content})
+    return out
+
+
 def _fetch_today() -> dict:
-    """今日のScheduleとTasksを取得"""
-    today = date.today().isoformat()
+    """今日のScheduleと、着手・期限が近いTasks（日付=今日だけに限らない）"""
+    today_d = _local_today()
+    today = today_d.isoformat()
+    win_start = (today_d - timedelta(days=TODAY_TASK_WINDOW_PAST_DAYS)).isoformat()
+    win_end = (today_d + timedelta(days=TODAY_TASK_WINDOW_FUTURE_DAYS)).isoformat()
 
     schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
         "filter": {"property": "日付", "date": {"equals": today}},
@@ -919,18 +1693,47 @@ def _fetch_today() -> dict:
         schedules.append({"title": name, "memo": memo})
 
     tasks_data = _notion_post(f"/databases/{DB['Tasks']}/query", {
-        "filter": {"property": "日付", "date": {"equals": today}},
+        "filter": {"and": [
+            {"property": "日付", "date": {"on_or_after": win_start}},
+            {"property": "日付", "date": {"on_or_before": win_end}},
+        ]},
+        "sorts": [{"property": "日付", "direction": "ascending"}],
+        "page_size": 50,
     })
-    tasks = []
+    seen_ids: set = set()
+    tasks: list = []
     for row in tasks_data.get("results", []):
-        title = row["properties"]["名前"]["title"]
-        name = title[0]["plain_text"] if title else "(無題)"
-        status_prop = row["properties"].get("ステータス", {}).get("select")
-        status = status_prop["name"] if status_prop else "未設定"
-        est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
-        tasks.append({"title": name, "status": status, "minutes": est})
+        seen_ids.add(row["id"])
+        summ = _task_row_to_summary(row)
+        if summ:
+            tasks.append(summ)
 
-    result = {"date": today, "schedules": schedules, "tasks": tasks}
+    # 日付プロパティ未設定のタスクは従来フィルタに掛からないため、直近編集分を補助的に足す
+    try:
+        undated = _notion_post(f"/databases/{DB['Tasks']}/query", {
+            "filter": {"property": "日付", "date": {"is_empty": True}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            "page_size": 15,
+        })
+        for row in undated.get("results", []):
+            if row["id"] in seen_ids:
+                continue
+            summ = _task_row_to_summary(row)
+            if summ:
+                tasks.append(summ)
+                seen_ids.add(row["id"])
+    except Exception as e:
+        logger.warning("[today] undated tasks supplement skipped: %s", e)
+
+    result = {
+        "date": today,
+        "schedules": schedules,
+        "tasks": tasks,
+        "tasks_note": (
+            "各タスクの date は多くが「期限日」。本日と異なっても、今日取り組む・期限が近いタスクとして案内してよい。"
+            " date が空のタスクは直近で触った未完了分が補助的に含まれることがある。"
+        ),
+    }
     if not schedules and not tasks:
         result["message"] = "今日の予定・タスクはまだありません。📅ボタンから追加してください。"
     return result
@@ -938,8 +1741,9 @@ def _fetch_today() -> dict:
 
 def _fetch_upcoming(days: int = 7) -> dict:
     """今日から N 日間のScheduleとTasksを取得"""
-    start = date.today().isoformat()
-    end = (date.today() + timedelta(days=days)).isoformat()
+    d0 = _local_today()
+    start = d0.isoformat()
+    end = (d0 + timedelta(days=days)).isoformat()
 
     schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
         "filter": {"and": [
@@ -993,7 +1797,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - idea: アイデア・企画の種・思いつき（すぐやる作業ではない）
 - schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
 - profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」＋新情報
-- today: 今日の予定を「聞いている」短い質問のみ（例:「今日何する？」「今日の予定は？」）
+- today: 今日の予定・タスクを「聞いている」短い質問（例:「今日何する？」「今日の予定は？」「今日のタスクは？」「今日のこの後の予定」「午後何がある？」）
 - upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
@@ -1008,7 +1812,10 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - 「〜してください」「〜して」「〜まとめて」「〜教えて」「知ってる？」→ answer（ただし文頭が「バグ:」「不具合:」なら例外でdebug）
 - 「覚えて」「覚えといて」＋新情報 → profile
 - 「もうやった」「終わった」「いらない」「消して」＋対象アイテム → done（titleに対象を入れる）
+- 「終わったよ」「完了した」だけのとき → done。会話履歴に直前の「タスクを登録」があれば title にはそのタスク名の短いキーワードを入れる（空にしない）
 - ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
+- 例外: Slack/Teams等のコピペっぽい長文（「名前/ID」「[12:34]」時刻タグ、@氏名/、URL、複数行の依頼文）→ task。
+  title はボスがやるべきこと1行に要約、content に依頼者・期限・URL・要点、minutes は null（システムが別経路で即保存する場合あり）
 - today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
 - taskとmemo: 買い物・備忘はmemo。仕事の実行項目はtask。迷ったら短文はmemo、明確な作業はtask
 - taskでは、発言から所要時間（分）が読み取れるときだけ JSON の minutes に正の整数を入れる。無ければ minutes:null（システムが後で聞く）
@@ -1025,6 +1832,10 @@ Few-shot例:
 "俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
 "今日の予定は？" → {{"intent":"today","title":"","content":"","date":""}}
+"今日のこの後の予定は？" → {{"intent":"today","title":"","content":"","date":""}}
+"午後の予定教えて" → {{"intent":"today","title":"","content":"","date":""}}
+"今日のタスクは？" → {{"intent":"today","title":"","content":"","date":""}}
+"今日やることリスト" → {{"intent":"today","title":"","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
 "経歴を300文字でまとめて" → {{"intent":"answer","title":"","content":"","date":""}}
 "俺の好きな食べ物知ってる？" → {{"intent":"answer","title":"","content":"","date":""}}
@@ -1032,6 +1843,8 @@ Few-shot例:
 "今日の予定です。15:00から定例、16:00からVision Play" → {{"intent":"answer","title":"","content":"","date":""}}
 "今週こんな感じで動いてる。月曜はCAの定例、水曜はデジハリ" → {{"intent":"answer","title":"","content":"","date":""}}
 "洗剤もう買ったよ" → {{"intent":"done","title":"洗剤","content":"","date":""}}
+"終わったよ" → {{"intent":"done","title":"","content":"","date":""}}
+（※直前に影が「PC持ち込み」をタスク登録した文脈なら） "終わったよ" → {{"intent":"done","title":"PC持ち込み","content":"","date":""}}
 "シチューはもう食べた" → {{"intent":"done","title":"シチュー","content":"","date":""}}
 "RAG動画の修正終わった" → {{"intent":"done","title":"RAG動画修正","content":"","date":""}}
 "バグ: 起動画面に日付と時刻を表示してほしい" → {{"intent":"debug","title":"バグ: 起動画面に日付と時刻を表示してほしい","content":"","date":""}}
@@ -1088,17 +1901,18 @@ def _auto_learn_bg(text: str):
         logger.error("[auto_learn] Failed: %s", e)
 
 
-def _summarize_via_gemini(instruction: str, data: str) -> str:
+def _summarize_via_gemini(instruction: str, data: str, prepend_clock: bool = False) -> str:
     """Notionデータを秘書トーンで要約。失敗時はデータをそのまま返す"""
     try:
         gemini_url = (
             f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
             f":generateContent?key={GEMINI_API_KEY}"
         )
+        clock = f"{_now_clock_block()}\n" if prepend_clock else ""
         resp = requests.post(gemini_url, json={
             "system_instruction": {"parts": [{"text": SECRETARY_SYSTEM_PROMPT}]},
-            "contents": [{"parts": [{"text": f"{instruction}\n\n{data}"}]}],
-        }, timeout=15)
+            "contents": [{"parts": [{"text": f"{clock}{instruction}\n\n{data}"}]}],
+        }, timeout=25)
         resp.raise_for_status()
         return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
     except Exception as e:
@@ -1115,7 +1929,13 @@ def _classify_intent_fallback(message: str) -> dict:
     if any(k in text for k in ["バグ:", "バグ：", "不具合:", "不具合：", "bug:"]):
         return {"intent": "debug", "title": message, "content": "", "date": ""}
     if any(k in text for k in ["もうやった", "終わった", "いらない", "消して", "削除して", "もう食べた", "もう買った"]):
-        return {"intent": "done", "title": message, "content": "", "date": ""}
+        raw_done = message.strip().replace(" ", "").replace("　", "")
+        if len(raw_done) < 40 and re.match(
+            r"^(終わった|おわった|完了|もうやった|やった|済み|いらない|消して|削除して)",
+            raw_done,
+        ):
+            return {"intent": "done", "title": "", "content": "", "date": ""}
+        return {"intent": "done", "title": message.strip()[:100], "content": "", "date": ""}
     is_request = any(k in text for k in ["してください", "して", "まとめて", "教えて", "知ってる", "作って"])
     if not is_request and any(k in text for k in ["覚えて", "覚えといて", "俺の情報"]):
         return {"intent": "profile", "title": message, "content": "", "date": "", "category": "その他"}
@@ -1129,6 +1949,12 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "memo", "title": message, "content": "", "date": ""}
     elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
         return {"intent": "idea", "title": message, "content": "", "date": ""}
+    elif len(tc) < 80 and "予定" in tc and (
+        "今日" in tc or "本日" in tc or "この後" in tc or "午後" in tc or "午前" in tc
+    ):
+        return {"intent": "today", "title": "", "content": "", "date": ""}
+    elif len(tc) < 56 and ("今日" in tc or "本日" in tc) and "タスク" in tc:
+        return {"intent": "today", "title": "", "content": "", "date": ""}
     elif any(k in text for k in ["予定", "締切", "まで", "schedule", "金曜", "月曜", "来週"]):
         return {"intent": "schedule", "title": message, "date": "", "content": ""}
     elif len(text) < 20 and any(k in text for k in ["今日", "today"]):
@@ -1191,12 +2017,12 @@ def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> 
     if forced_h:
         return forced_h
 
-    today_str = date.today().isoformat()
+    today_str = _local_today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
 
     history_context = ""
     if session_id and session_id in CONVERSATIONS:
-        recent = CONVERSATIONS[session_id]["msgs"][-6:]
+        recent = CONVERSATIONS[session_id]["msgs"][-10:]
         if recent:
             lines = []
             for m in recent:
@@ -1269,14 +2095,14 @@ def get_upcoming(days: int = 7):
 
 def _fetch_brain() -> dict:
     """Notionの主要DBからデータを並列取得（Profile はキャッシュ利用）"""
-    today_str = date.today().isoformat()
-    end_str = (date.today() + timedelta(days=30)).isoformat()
+    today_str = _local_today().isoformat()
+    end_str = (_local_today() + timedelta(days=30)).isoformat()
     t0 = time.time()
 
     def _q_memos():
         data = _notion_post(f"/databases/{DB['Memos']}/query", {
             "sorts": [{"timestamp": "created_time", "direction": "descending"}],
-            "page_size": 20,
+            "page_size": 24,
         })
         result = []
         for row in data.get("results", []):
@@ -1414,7 +2240,7 @@ def think():
         f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
 
-    user_prompt = f"今日は {date.today().isoformat()} です。以下のNotionデータを分析して整理してください:\n\n{context}"
+    user_prompt = f"今日は {_local_today().isoformat()} です。以下のNotionデータを分析して整理してください:\n\n{context}"
 
     try:
         gemini_url = (
@@ -1437,7 +2263,7 @@ def think():
             t0line = t0["title"]
             if t0.get("minutes") is not None:
                 t0line += f"（約{int(t0['minutes'])}分）"
-            lines.append("【今すぐやること】" + t0line)
+            lines.append("【今すぐ】\n・" + t0line)
             if len(tasks) > 1:
                 lines.append("【今日中】")
                 for t in tasks[1:4]:
@@ -1445,7 +2271,7 @@ def think():
                     est = f"約{int(m)}分・" if m is not None else ""
                     lines.append(f"・{t['title']}（{est}{t.get('status', '')}）")
         elif schedule:
-            lines.append("【今すぐやること】" + schedule[0]["title"])
+            lines.append("【今すぐ】\n・" + schedule[0]["title"])
         else:
             lines.append("まだNotionに何もない。まずはタスクか予定を登録しろ。")
         answer = "\n".join(lines)
@@ -1492,6 +2318,45 @@ def chat(req: ChatRequest):
             _add_to_session(sid, "assistant", pending_task_resp["message"])
         return pending_task_resp
 
+    _ensure_session_news_feedback(sid)
+    news_fb_resp = _handle_pending_news_feedback(sid, text)
+    if news_fb_resp is not None:
+        news_fb_resp["session_id"] = sid
+        if news_fb_resp.get("message"):
+            _add_to_session(sid, "assistant", news_fb_resp["message"])
+        return news_fb_resp
+
+    # --- Slack/転送コピペ → タスク1件に要約して即保存（所要時間は聞かない） ---
+    _ensure_session_last_task(sid)
+    if GEMINI_API_KEY and _looks_like_slack_or_forward_paste(text):
+        ext = _extract_task_from_forwarded_paste(text)
+        if ext:
+            try:
+                page = _notion_save_task(
+                    ext["title"],
+                    ext.get("content") or "",
+                    None,
+                    ext["date"],
+                )
+                pid = page.get("id") if isinstance(page, dict) else None
+                _note_last_task(sid, pid, ext["title"])
+                msg = (
+                    "Slackの連絡をタスクに整理し、保存しました。\n\n"
+                    f"・{ext['title']}\n"
+                    f"日付: {ext['date']}\n\n"
+                    "完了したら「終わった」「完了した」とお伝えください。"
+                )
+                _add_to_session(sid, "assistant", msg)
+                return {
+                    "intent": "task",
+                    "message": msg,
+                    "saved": True,
+                    "session_id": sid,
+                    "from_slack_paste": True,
+                }
+            except Exception as e:
+                logger.error("[slack_task] Notion save failed: %s", e)
+
     # --- Geminiでintent分類（会話履歴を含めて文脈判断） ---
     classified = _classify_intent_via_gemini(text, session_id=sid)
     intent = classified.get("intent", "unknown")
@@ -1500,7 +2365,7 @@ def chat(req: ChatRequest):
     KNOWN_INTENTS = {
         "memo", "idea", "task", "schedule", "profile", "done", "debug",
         "sleep_bedtime", "sleep_wake", "health_go", "health_back",
-        "today", "upcoming", "think", "answer", "unknown",
+        "today", "upcoming", "think", "answer", "unknown", "news_feedback",
     }
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
@@ -1547,13 +2412,14 @@ def chat(req: ChatRequest):
     if intent == "task":
         title = (classified.get("title") or text[:120]).strip() or "タスク"
         content = (classified.get("content") or "").strip()
-        d = classified.get("date") or date.today().isoformat()
+        d = classified.get("date") or _local_today().isoformat()
         if len(d) > 12:
             d = d[:10]
         minutes = _coerce_task_minutes(classified.get("minutes"))
         if minutes is not None:
             try:
-                _notion_save_task(title, content or text, minutes, d)
+                page = _notion_save_task(title, content or text, minutes, d)
+                _note_last_task(sid, page.get("id") if isinstance(page, dict) else None, title)
                 return _respond({
                     "intent": "task",
                     "message": f"タスクを登録しました: {title[:60]}（見積 約{_fmt_duration_mins(minutes)}）",
@@ -1583,7 +2449,7 @@ def chat(req: ChatRequest):
     # --- schedule ---
     if intent == "schedule":
         title = classified.get("title") or text[:20]
-        d = classified.get("date") or date.today().isoformat()
+        d = classified.get("date") or _local_today().isoformat()
         memo = classified.get("memo") or classified.get("content") or ""
         props = {**_title_prop(title), **_date_prop("日付", d)}
         if memo:
@@ -1621,10 +2487,36 @@ def chat(req: ChatRequest):
 
     # --- done (完了/削除) ---
     if intent == "done":
-        query = classified.get("title") or text[:30]
+        raw_q = (classified.get("title") or "").strip()
+        vague_user = _is_vague_done_phrase(text)
+        vague_class = _is_vague_done_phrase(raw_q)
+
+        if sid in CONVERSATIONS and vague_user:
+            lp = CONVERSATIONS[sid].get("last_task_page_id")
+            if lp:
+                snap = (CONVERSATIONS[sid].get("last_task_title") or "タスク")[:80]
+                if _archive_page(lp):
+                    CONVERSATIONS[sid]["last_task_page_id"] = None
+                    return _respond({
+                        "intent": "done",
+                        "message": f"かしこまりました。「{snap}」をアーカイブしました。",
+                        "saved": False,
+                        "archived": True,
+                    })
+
+        query = raw_q
+        if (not query or vague_class) and sid in CONVERSATIONS:
+            lt = (CONVERSATIONS[sid].get("last_task_title") or "").strip()
+            if lt:
+                query = lt
+        if not query:
+            query = text.strip()[:80]
+
         found = _search_and_archive(query)
         if len(found) == 1:
             _archive_page(found[0]["page_id"])
+            if sid in CONVERSATIONS and CONVERSATIONS[sid].get("last_task_page_id") == found[0]["page_id"]:
+                CONVERSATIONS[sid]["last_task_page_id"] = None
             return _respond({"intent": "done", "message": f"かしこまりました。「{found[0]['title']}」をアーカイブしました。", "saved": False, "archived": True})
         elif len(found) > 1:
             items_text = "\n".join(f"・{f['title']}（{f['db']}）" for f in found[:5])
@@ -1657,7 +2549,7 @@ def chat(req: ChatRequest):
                 "名前": {"title": [{"text": {"content": report_text[:100]}}]},
                 "内容": {"rich_text": [{"text": {"content": report_text[:2000]}}]},
                 "ステータス": {"select": {"name": "未対応"}},
-                "日付": {"date": {"start": date.today().isoformat()}},
+                "日付": {"date": {"start": _local_today().isoformat()}},
             }
             if context_lines:
                 props["会話コンテキスト"] = {"rich_text": [{"text": {"content": context_lines[:2000]}}]}
@@ -1673,15 +2565,45 @@ def chat(req: ChatRequest):
         except Exception as e:
             return _respond({"intent": "debug", "message": f"バグ報告の処理中にエラーが発生しました: {str(e)}", "saved": False})
 
-    # --- today ---
+    # --- today（Notion + 会話内の予定共有を統合） ---
     if intent == "today":
         try:
             data = _fetch_today()
-            if not data.get("schedules") and not data.get("tasks"):
+            try:
+                recent_memos = _fetch_recent_memo_snippets(10)
+            except Exception as e:
+                logger.warning("[today] recent memos skipped: %s", e)
+                recent_memos = []
+            chat_sched = _collect_schedule_related_chat(sid)
+            notion_empty = not data.get("schedules") and not data.get("tasks")
+            if notion_empty and not chat_sched and not recent_memos:
                 return _respond({"intent": "today", "message": "ボス、今日の予定・タスクはまだ登録がありません。", "saved": False})
+            bundle = {
+                "today_date": data["date"],
+                "notion_schedules": data.get("schedules", []),
+                "notion_tasks": data.get("tasks", []),
+                "tasks_field_guide": data.get("tasks_note"),
+                "from_conversation": chat_sched or None,
+                "recent_memos": recent_memos,
+            }
+            instr = (
+                "ボスから「今日の予定・タスク」の問い合わせです。次のJSONを読んで答えてください。\n"
+                f"- today_date: カレンダー上の本日（{data['date']}）\n"
+                "- notion_schedules: 本日の予定（カレンダー日付=今日）\n"
+                "- notion_tasks: 着手・期限が近いタスク一覧。各要素の date は多くが「期限日」で、"
+                "today_date と違っても正常（例: 明後日締切のタスクは今日動く）。"
+                "tasks_field_guide の説明に従い、本日期限・近日期限を区別して案内すること。\n"
+                "- from_conversation: このチャットでボスが共有した予定・作業メモ（Notion未登録の可能性あり）。"
+                "時刻・件名・最優先の作業名を抜けなく読み上げること。これが唯一の情報源のときもある。\n"
+                "- recent_memos: 直近のメモDB。タスク欄が空でも、ここに今日の作業の手がかりがあれば必ず触れること。"
+                "（メモの内容を「公式スケジュール」と混同せず、メモとして一言出典を添える）\n"
+                "- 会話内の「今日」は発言当日を指すことがある。today_date とズレる内容は「先日チャットで共有いただいた予定では…」のように切り分ける。\n"
+                "- Notionと会話の両方があるときは重複をまとめ、簡潔に列挙する。"
+            )
             answer = _summarize_via_gemini(
-                f"今日（{data['date']}）のNotionデータです。ボスに今日の予定を簡潔に伝えてください。",
-                json.dumps(data, ensure_ascii=False),
+                instr,
+                json.dumps(bundle, ensure_ascii=False),
+                prepend_clock=True,
             )
             return _respond({"intent": "today", "message": answer, "saved": False})
         except Exception:
@@ -1696,6 +2618,7 @@ def chat(req: ChatRequest):
             answer = _summarize_via_gemini(
                 f"今週（{data['range']}）のNotionデータです。ボスに今週の予定を簡潔に伝えてください。",
                 json.dumps(data, ensure_ascii=False),
+                prepend_clock=True,
             )
             return _respond({"intent": "upcoming", "message": answer, "saved": False})
         except Exception:
@@ -1762,17 +2685,54 @@ def chat(req: ChatRequest):
 # ---------------------------------------------------------------------------
 
 @app.get("/morning")
-def morning():
-    """朝のブリーフィング: 今日の予定+リマインド+ひとこと"""
-    if not GEMINI_API_KEY:
-        return {"message": "APIキーが未設定です"}
+def morning(session_id: Optional[str] = Query(None)):
+    """朝のブリーフィング: 今日の予定+リマインド+ひとこと +（任意）RSSニュース提案
+    session_id を渡すと、ニュース表示時に「感想待ち」フラグをセッションに立てる"""
+    news_meta: dict = {"enabled": False, "items": []}
+    nd: dict = {}
+    news_feedback_prompt = False
 
     try:
         brain = _fetch_brain()
     except Exception:
         brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
 
-    today_str = date.today().isoformat()
+    try:
+        nd = news_digest.build_digest(brain=_brain_slice_for_news(brain), refresh=False)
+        if nd.get("enabled") and nd.get("items"):
+            news_meta = {
+                "enabled": True,
+                "items": nd["items"],
+                "generated_at": nd.get("generated_at"),
+                "feeds": nd.get("feeds", []),
+                "keywords_env": nd.get("keywords_env", []),
+                "interest": nd.get("interest") or {},
+                "rss_cached_at": nd.get("rss_cached_at"),
+            }
+    except Exception as e:
+        logger.warning("[morning] news_digest: %s", e)
+
+    if session_id and nd.get("enabled") and nd.get("items"):
+        try:
+            sid_nf, _ = _get_session(session_id)
+            _ensure_session_news_feedback(sid_nf)
+            CONVERSATIONS[sid_nf]["pending_news_feedback"] = {
+                "set_at": time.time(),
+                "digest_at": nd.get("generated_at"),
+                "headlines": [(it.get("title") or "")[:300] for it in nd.get("items", [])[:8]],
+            }
+            news_feedback_prompt = True
+        except Exception as ex:
+            logger.warning("[morning] news feedback pending: %s", ex)
+
+    if not GEMINI_API_KEY:
+        return {
+            "message": "APIキーが未設定です",
+            "news": news_meta,
+            "news_feedback_prompt": news_feedback_prompt,
+        }
+
+    today_str = _local_today().isoformat()
     context = (
         f"今日の日付: {today_str}\n\n"
         f"## ボスのプロフィール\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
@@ -1781,6 +2741,13 @@ def morning():
         f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
         f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
+    if nd.get("enabled") and nd.get("items"):
+        nj = news_digest.items_json_for_morning(nd)
+        context += (
+            "\n\n## ニュース・RSS（本日・簡易スコア上位・著作権に注意）\n"
+            "次のJSONは外部RSSの見出しです。ブリーフィング本文では長文引用を避け、提案1〜2文に留めること。\n"
+            f"{nj}"
+        )
 
     try:
         gemini_url = (
@@ -1796,7 +2763,27 @@ def morning():
     except Exception:
         answer = "ボス、おはようございます。本日のブリーフィングを生成できませんでした。"
 
-    return {"message": answer}
+    return {
+        "message": answer,
+        "news": news_meta,
+        "news_feedback_prompt": news_feedback_prompt,
+    }
+
+
+@app.get("/news/digest")
+def api_news_digest(
+    refresh: bool = False,
+    x_kage_cron: Optional[str] = Header(None, alias="X-Kage-Cron"),
+):
+    """
+    RSS ダイジェスト（デバッグ・Cron用）。
+    refresh=true のときは KAGE_NEWS_CRON_SECRET とヘッダー X-Kage-Cron が一致が必要。
+    """
+    secret = os.environ.get("KAGE_NEWS_CRON_SECRET", "").strip()
+    if refresh:
+        if not secret or (x_kage_cron or "").strip() != secret:
+            raise HTTPException(status_code=403, detail="refresh には正しい X-Kage-Cron が必要です")
+    return news_digest.build_digest(refresh=refresh)
 
 
 # ---------------------------------------------------------------------------
@@ -1816,11 +2803,31 @@ def _brain_slice_for_opening(brain: dict) -> dict:
     }
 
 
+def _brain_slice_for_news(brain: dict) -> dict:
+    """ニュース重み付け用（news_digest.merge と同じ上限に揃える）"""
+    return {
+        "profile": (brain.get("profile") or [])[:45],
+        "memos": (brain.get("memos") or [])[:24],
+        "ideas": (brain.get("ideas") or [])[:15],
+        "tasks": (brain.get("tasks") or [])[:25],
+    }
+
+
 @app.get("/opening")
-def opening_line():
-    """起動直後: Notionを踏まえた心を和らげる一言（日付・時刻は含めない）"""
+def opening_line(
+    bootstrap_session: int = Query(0, ge=0, le=1),
+    session_id: Optional[str] = Query(None),
+):
+    """起動直後: Notionを踏まえた心を和らげる一言（日付・時刻は含めない）
+    bootstrap_session=1 で新規セッションIDを返す（朝ニュース感想フロー用）"""
+    out: dict = {}
+    if bootstrap_session:
+        sid_boot, _ = _get_session(session_id)
+        out["session_id"] = sid_boot
+
     if not GEMINI_API_KEY:
-        return {"line": "本日も無理せず、よろしくお願いいたします。"}
+        out["line"] = "本日も無理せず、よろしくお願いいたします。"
+        return out
 
     try:
         brain = _fetch_brain()
@@ -1857,7 +2864,8 @@ def opening_line():
         logger.error("[opening] Gemini failed: %s", e)
         line = "本日もよろしくお願いいたします。無理のないペースでまいりましょう。"
 
-    return {"line": line}
+    out["line"] = line
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1867,8 +2875,9 @@ def opening_line():
 @app.get("/reminders")
 def reminders(days: int = 3):
     """直近N日以内の予定・締切をリマインドとして返す"""
-    start = date.today().isoformat()
-    end = (date.today() + timedelta(days=days)).isoformat()
+    d0 = _local_today()
+    start = d0.isoformat()
+    end = (d0 + timedelta(days=days)).isoformat()
 
     try:
         schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
@@ -1918,22 +2927,69 @@ def _summarize_debug_page(row: dict) -> dict:
     }
 
 
+DEBUG_STATUS_OPTIONS = ("未対応", "対応中", "完了")
+
+
 @app.get("/debug/recent")
-def debug_recent(limit: int = 30):
-    """デバッグログDBの直近エントリ（新しい順）"""
+def debug_recent(limit: int = 30, status: Optional[str] = None):
+    """デバッグログDBの直近エントリ（新しい順）。status で Notion のステータス絞り込み可"""
     if not API_KEY:
         return {"items": [], "count": 0, "error": "NOTION_API_KEY 未設定"}
     lim = max(1, min(int(limit), 50))
+    body: dict = {
+        "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+        "page_size": lim,
+    }
+    if status and status in DEBUG_STATUS_OPTIONS:
+        body["filter"] = {"property": "ステータス", "select": {"equals": status}}
     try:
-        data = _notion_post(f"/databases/{DB['Debug']}/query", {
-            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
-            "page_size": lim,
-        })
+        data = _notion_post(f"/databases/{DB['Debug']}/query", body)
         items = [_summarize_debug_page(r) for r in data.get("results", [])]
-        return {"items": items, "count": len(items)}
+        return {"items": items, "count": len(items), "filter_status": status or ""}
     except Exception as e:
         logger.error("[debug/recent] %s", e)
         return {"items": [], "count": 0, "error": str(e)}
+
+
+class DebugStatusRequest(BaseModel):
+    page_id: str
+    status: str
+
+
+@app.post("/debug/status")
+def debug_set_status(req: DebugStatusRequest):
+    """デバッグログのステータスを更新（運用: 未対応→対応中→完了）"""
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="NOTION_API_KEY 未設定")
+    if req.status not in DEBUG_STATUS_OPTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"status は {list(DEBUG_STATUS_OPTIONS)} のいずれかです",
+        )
+    raw = (req.page_id or "").strip()
+    if re.fullmatch(
+        r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+        raw,
+        flags=re.I,
+    ):
+        fmt_id = raw
+    else:
+        compact = re.sub(r"[^0-9a-fA-F]", "", raw)
+        if len(compact) != 32:
+            raise HTTPException(status_code=400, detail="page_id が不正です")
+        fmt_id = (
+            f"{compact[:8]}-{compact[8:12]}-{compact[12:16]}-{compact[16:20]}-{compact[20:]}"
+        )
+    try:
+        _notion_patch(f"/pages/{fmt_id}", {
+            "properties": {"ステータス": {"select": {"name": req.status}}},
+        })
+        return {"ok": True, "page_id": fmt_id, "status": req.status}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[debug/status] %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ---------------------------------------------------------------------------
@@ -1959,7 +3015,7 @@ def archive_item(req: ArchiveRequest):
 @app.get("/cleanup")
 def cleanup():
     """古い/完了済みのアイテムを片付け候補として返す"""
-    today_str = date.today().isoformat()
+    today_str = _local_today().isoformat()
     candidates = []
 
     for db_name in ("Memos", "Tasks", "Schedule"):
@@ -1993,10 +3049,68 @@ def cleanup():
 # フロントエンド配信
 # ---------------------------------------------------------------------------
 
+@app.get("/api/kage-release.json")
+def api_kage_release_json():
+    """版 JSON（CDN/ブラウザにキャッシュされにくい経路）。ヘッダーは no-store。"""
+    return JSONResponse(
+        content=_read_kage_release(),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
 @app.get("/app")
 def serve_frontend():
-    """フロントエンドのindex.htmlを返す"""
+    """フロントエンド index.html。版はサーバで埋め込み、HTML 自体もキャッシュさせない。"""
     index_path = STATIC_DIR / "index.html"
-    if index_path.exists():
-        return FileResponse(str(index_path), media_type="text/html")
-    return {"error": "フロントエンドが見つかりません"}
+    if not index_path.exists():
+        return {"error": "フロントエンドが見つかりません"}
+    html = index_path.read_text(encoding="utf-8")
+    raw_ver = str(_read_kage_release().get("app_version") or "").strip()
+    if not raw_ver or not re.match(r"^[\w.\-]+$", raw_ver):
+        raw_ver = "?"
+    html = html.replace("{{KAGE_APP_VERSION}}", f"v{raw_ver}")
+    return HTMLResponse(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.on_event("startup")
+def _kage_notion_startup_sync():
+    """任意: 起動時に Notion Memos へ KAGE ドキュメントを同期（.env で制御）"""
+    mode = os.environ.get("KAGE_NOTION_SYNC_ON_STARTUP", "").strip().lower()
+    if not mode:
+        return
+    if not API_KEY:
+        logger.warning("[kage-notion] startup sync skipped: NOTION_API_KEY なし")
+        return
+    secret = os.environ.get("KAGE_NOTION_SYNC_SECRET", "").strip()
+    if not secret:
+        logger.warning("[kage-notion] startup sync skipped: KAGE_NOTION_SYNC_SECRET なし")
+        return
+
+    if mode in ("dynamic", "dyn"):
+        inc_s, inc_d = False, True
+    elif mode in ("static",):
+        inc_s, inc_d = True, False
+    elif mode in ("all", "both", "full", "yes", "true", "1"):
+        inc_s, inc_d = True, True
+    else:
+        logger.warning("[kage-notion] unknown KAGE_NOTION_SYNC_ON_STARTUP=%r", mode)
+        return
+
+    def job():
+        try:
+            sync_kage_docs_to_notion(include_static=inc_s, include_dynamic=inc_d)
+            logger.info("[kage-notion] startup sync done static=%s dynamic=%s", inc_s, inc_d)
+        except Exception as e:
+            logger.error("[kage-notion] startup sync failed: %s", e)
+
+    threading.Thread(target=job, daemon=True).start()

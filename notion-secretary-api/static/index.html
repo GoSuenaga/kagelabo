@@ -16,7 +16,7 @@
     <div class="header-left">
       <span class="header-icon">影</span>
       <div>
-        <div class="header-title">KAGE <span class="ver-badge">v0.13</span></div>
+        <div class="header-title">KAGE <span class="ver-badge" id="kageVerBadge" title="版は kage_release.json（/app でサーバ埋め込み）">{{KAGE_APP_VERSION}}</span></div>
         <div class="header-sub" id="headerDate">Go's Shadow</div>
       </div>
     </div>
@@ -26,6 +26,9 @@
       </button>
       <button class="icon-btn" id="btnCopyLog" title="会話ログをコピー">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+      </button>
+      <button class="icon-btn" id="btnCopyPageUrl" title="このページのURLをコピー（Notion用）">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
       </button>
       <button class="icon-btn" id="btnModel" title="モデル切り替え">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83"/></svg>
@@ -137,6 +140,20 @@
     </div>
   </footer>
 
+  <script>
+    (function () {
+      var el = document.getElementById('kageVerBadge');
+      if (!el) return;
+      fetch('/api/kage-release.json?_' + Date.now(), { cache: 'no-store' })
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d && d.app_version) el.textContent = 'v' + String(d.app_version);
+        })
+        .catch(function () {
+          el.textContent = 'v?';
+        });
+    })();
+  </script>
   <script src="/static/app.js"></script>
 </body>
 </html>

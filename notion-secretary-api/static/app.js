@@ -1,8 +1,6 @@
 'use strict';
 
-const API     = location.origin;
-const VERSION = 'v0.13';
-const BUILD   = '2026-03-23';
+const API = location.origin;
 
 let sessionId = sessionStorage.getItem('kage_session') || null;
 
@@ -45,17 +43,6 @@ function fmtDateHeader() {
   const d = new Date();
   return d.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
 }
-/** ウェルカム用: 端末ロケールの「今日」と現在時刻（秘書の第一声用） */
-function fmtWelcomeClock() {
-  const d = new Date();
-  const dateStr = d.toLocaleDateString('ja-JP', {
-    year: 'numeric', month: 'long', day: 'numeric', weekday: 'long',
-  });
-  const timeStr = d.toLocaleTimeString('ja-JP', {
-    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-  });
-  return { dateStr, timeStr };
-}
 function todayStr() { return new Date().toISOString().slice(0,10); }
 function fmtDate(s) {
   if (!s) return '';
@@ -68,7 +55,14 @@ function scrollEnd() {
 }
 
 // ── Chat render ───────────────────────────────────
-function addMsg(role, html, cls='') {
+/**
+ * @param {string} role
+ * @param {string} html
+ * @param {string} [cls]
+ * @param {{ noScroll?: boolean }} [opts] 起動時など、先頭を見せたいとき true
+ */
+function addMsg(role, html, cls = '', opts = {}) {
+  const noScroll = opts && opts.noScroll === true;
   const row = document.createElement('div');
   row.className = `row ${role}`;
   if (role === 'kage') {
@@ -81,7 +75,7 @@ function addMsg(role, html, cls='') {
   bbl.innerHTML = html;
   row.appendChild(bbl);
   chatArea.appendChild(row);
-  scrollEnd();
+  if (!noScroll) scrollEnd();
   return bbl;
 }
 function addUser(text) { addMsg('user', esc(text)); }
@@ -106,26 +100,24 @@ function hideTyping() { typingEl && (typingEl.remove(), typingEl = null); }
 function showWelcome() {
   const h = new Date().getHours();
   const g = h < 12 ? 'おはようございます' : h < 18 ? 'お疲れ様です' : 'お疲れ様です';
-  const { dateStr, timeStr } = fmtWelcomeClock();
-  addMsg('kage', `
-    <div class="welcome">
-      <div class="welcome-clock" aria-label="今日の日付と現在時刻">
-        <div class="wc-label">本日</div>
-        <div class="wc-date">${esc(dateStr)}</div>
-        <div class="wc-time">${esc(timeStr)}</div>
-      </div>
-      <strong>${g}、ボス。</strong><br>
-      影がNotionの管理をサポートいたします。<br><br>
-      📝 メモ・💡 アイデア → 保存<br>
-      📅 予定ボタン → 日時つきで保存<br>
-      🧠 整理ボタン → タスクを整理<br>
-      🐛 バグボタン → 不具合をNotionに記録<br>
-      ✅ 仕事タスク → Tasksに保存（所要時間が無いと聞き返します）<br>
-      💤 「おやすみ」「おはよう」→ 睡眠ログ<br>
-      🚪 「行ってきます」「ただいま」→ 健康メモ<br>
-      📆 右上カレンダー → 今後の予定確認
+  // 日付はヘッダー、時刻はOSステータスバーに任せ、ウェルカムでは日時を出さない（重複削減）
+  addMsg(
+    'kage',
+    `
+    <div class="welcome welcome--compact">
+      <p class="welcome-lead"><strong>${g}、ボス。</strong> 何でも話しかけてください。</p>
+      <details class="welcome-details">
+        <summary class="welcome-details-sum">使い方ヒント</summary>
+        <div class="welcome-details-body">
+          <p>下のボタンで<strong>メモ・予定・整理・片付け・バグ</strong>。長い連絡は貼り付けでタスク化できます。</p>
+          <p>右上の<strong>カレンダー</strong>で今後の予定を確認できます。</p>
+        </div>
+      </details>
     </div>
-  `);
+  `,
+    '',
+    { noScroll: true }
+  );
 }
 
 // ── API ───────────────────────────────────────────
@@ -150,6 +142,7 @@ const BADGE = {
   done:'🗑️ 完了', debug:'🐛 バグ報告',
   sleep_bedtime:'💤 就寝', sleep_wake:'🌅 起床', health_go:'🚪 外出', health_back:'🏠 帰宅',
   task:'✅ タスク',
+  news_feedback:'📰 ニュース好み',
 };
 
 function renderResponse(data, originalText) {
@@ -205,38 +198,166 @@ function renderResponse(data, originalText) {
     return;
   }
 
+  if (intent === 'think') {
+    addMsg(
+      'kage',
+      '<div class="think-section think-single-layout">' + buildThinkHtml(message || '') + '</div>'
+    );
+    return;
+  }
+
+  if (intent === 'news_feedback') {
+    const b = `<span class="badge-intent">${BADGE.news_feedback}</span><br>`;
+    const foot =
+      saved === true
+        ? '<br><span class="badge-save">✓ Notionメモ（[ニュースFB]）に反映しました</span>'
+        : '';
+    addMsg('kage', `${b}${esc(message || '')}${foot}`, saved === true ? 'saved' : '');
+    return;
+  }
+
   addMsg('kage', esc(message||'承知しました。'));
 }
 
-// ── Think result renderer ─────────────────────────
-function renderThinkResult(text) {
-  const sections = text.split(/(?=【)/);
-  let html = '';
+// ── Think: シングルタスク強調 + その他は折りたたみ ──
+const THINK_HERO_TITLES = new Set(['今すぐ', '今すぐやること', 'まずやること', '最優先']);
 
-  for (const section of sections) {
-    const trimmed = section.trim();
-    if (!trimmed) continue;
+function parseThinkSections(text) {
+  const parts = String(text).split(/(?=【)/);
+  const out = [];
+  for (const section of parts) {
+    const t = section.trim();
+    if (!t) continue;
+    const m = t.match(/^【(.+?)】(.*)$/s);
+    if (m) out.push({ title: m[1].trim(), body: m[2].trim() });
+    else out.push({ title: '_raw', body: t });
+  }
+  return out;
+}
 
-    const match = trimmed.match(/^【(.+?)】(.*)$/s);
-    if (match) {
-      const title = match[1];
-      const body = match[2].trim();
-      html += '<div class="think-section-title">' + esc(title) + '</div>';
+/** 先頭の箇条書き1行を取り出し、残りを返す */
+function partitionFirstBullet(body) {
+  const lines = body.split('\n').map(l => l.trim()).filter(Boolean);
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(/^[・•*＊\-]\s*(.+)$/);
+    if (m) return { first: m[1].trim(), restLines: lines.slice(i + 1) };
+  }
+  if (lines.length === 1) return { first: lines[0], restLines: [] };
+  if (lines.length > 1) return { first: lines[0], restLines: lines.slice(1) };
+  return { first: (body || '').trim(), restLines: [] };
+}
 
-      if (title === '今すぐ') {
-        html += '<div class="think-highlight">' + esc(body) + '</div>';
-      } else {
-        const lines = body.split('\n').filter(l => l.trim());
-        for (const line of lines) {
-          html += '<div class="think-item">' + esc(line) + '</div>';
-        }
-      }
-    } else {
-      html += '<div class="think-item">' + esc(trimmed) + '</div>';
+function countNonEmptyLines(body) {
+  if (!body || !body.trim()) return 0;
+  return body.split('\n').map(l => l.trim()).filter(Boolean).length;
+}
+
+function renderThinkRestSections(sections) {
+  let h = '';
+  for (const s of sections) {
+    if (!s.body || !s.body.trim()) continue;
+    if (s.title !== '_raw') {
+      h += '<div class="think-more-sec-title">' + esc(s.title) + '</div>';
+    }
+    const lines = s.body.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const line of lines) {
+      h += '<div class="think-item think-item-dim">' + esc(line) + '</div>';
+    }
+  }
+  return h;
+}
+
+/** 整理結果HTML（いまやること大 + その他は details） */
+function buildThinkHtml(text) {
+  const sections = parseThinkSections(text);
+  if (!sections.length) {
+    return '<div class="think-item">' + esc(String(text).trim()) + '</div>';
+  }
+
+  let kageFoot = '';
+  const work = [];
+  for (const s of sections) {
+    if (s.title === '影より') {
+      kageFoot = s.body;
+      continue;
+    }
+    work.push({ title: s.title, body: s.body });
+  }
+
+  let heroText = '';
+  let heroIdx = -1;
+  let trimmedBodies = null;
+
+  for (let i = 0; i < work.length; i++) {
+    if (!THINK_HERO_TITLES.has(work[i].title)) continue;
+    const { first, restLines } = partitionFirstBullet(work[i].body);
+    if (first) {
+      heroText = first;
+      heroIdx = i;
+      trimmedBodies = work.map((s, j) =>
+        j === i ? { title: s.title, body: restLines.join('\n') } : { title: s.title, body: s.body }
+      );
+      break;
     }
   }
 
-  addMsg('kage', '<div class="think-section">' + (html || esc(text)) + '</div>');
+  if (!heroText) {
+    for (let i = 0; i < work.length; i++) {
+      const { first, restLines } = partitionFirstBullet(work[i].body);
+      if (first) {
+        heroText = first;
+        heroIdx = i;
+        trimmedBodies = work.map((s, j) =>
+          j === i ? { title: s.title, body: restLines.join('\n') } : { title: s.title, body: s.body }
+        );
+        break;
+      }
+    }
+  }
+
+  if (!heroText) {
+    return '<div class="think-item">' + esc(String(text).trim()) + '</div>';
+  }
+
+  const restSections = trimmedBodies
+    .map((s, i) => {
+      if (i !== heroIdx) return s;
+      const b = (s.body || '').trim();
+      return b ? s : null;
+    })
+    .filter(Boolean);
+
+  const itemCount = restSections.reduce((n, s) => n + countNonEmptyLines(s.body), 0);
+  const restHtml = renderThinkRestSections(restSections);
+
+  let html = '';
+  html += '<div class="think-hero-block">';
+  html += '<div class="think-hero-label">いまやること</div>';
+  html += '<div class="think-hero-text">' + esc(heroText) + '</div>';
+  html += '</div>';
+
+  if (itemCount > 0 && restHtml) {
+    html += '<details class="think-more">';
+    html +=
+      '<summary><span class="think-more-summary-main">その他の候補・メモ <span class="think-more-count">' +
+      esc(String(itemCount)) +
+      '件</span></span></summary>';
+    html += '<div class="think-more-body">' + restHtml + '</div>';
+    html += '</details>';
+  }
+
+  if (kageFoot && kageFoot.trim()) {
+    html += '<div class="think-kage-foot">' + esc(kageFoot.trim()) + '</div>';
+  }
+
+  return html;
+}
+
+function renderThinkResult(text) {
+  addMsg(
+    'kage',
+    '<div class="think-section think-single-layout">' + buildThinkHtml(text) + '</div>'
+  );
 }
 
 // ── Send ──────────────────────────────────────────
@@ -431,46 +552,108 @@ function renderUpcomingModal(data) {
 upcomingClose.addEventListener('click', () => upcomingModal.classList.remove('open'));
 upcomingModal.addEventListener('click', e => { if(e.target===upcomingModal) upcomingModal.classList.remove('open'); });
 
-// ── Debug log modal（Notion デバッグDB） ───────────
+// ── Debug log modal（Notion デバッグDB・運用ステータス） ──
+/** @type {string} フィルタ: __all__ | 未対応 | 対応中 | 完了 */
+let debugListFilter = '__all__';
 if (btnDebugList && debugModal && debugBody) {
-  btnDebugList.addEventListener('click', async () => {
-    debugModal.classList.add('open');
-    debugBody.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
-    try {
-      const data = await get('/debug/recent?limit=40');
-      renderDebugModal(data);
-    } catch (e) {
-      debugBody.innerHTML = '<p class="empty-msg">取得できませんでした。</p>';
-    }
-  });
+  async function fetchDebugList() {
+    const q = debugListFilter && debugListFilter !== '__all__'
+      ? `&status=${encodeURIComponent(debugListFilter)}`
+      : '';
+    return get(`/debug/recent?limit=40${q}`);
+  }
   function renderDebugModal(data) {
     if (data.error) {
       debugBody.innerHTML = `<p class="empty-msg">${esc(data.error)}</p>`;
       return;
     }
     const items = data.items || [];
+    const filters = [
+      { key: '__all__', label: 'すべて' },
+      { key: '未対応', label: '未対応' },
+      { key: '対応中', label: '対応中' },
+      { key: '完了', label: '完了' },
+    ];
+    let tb = '<div class="debug-toolbar">';
+    filters.forEach(f => {
+      const on = debugListFilter === f.key ? ' active' : '';
+      tb += `<button type="button" class="debug-filter-btn${on}" data-dbg-filter="${esc(f.key)}">${esc(f.label)}</button>`;
+    });
+    tb += '</div>';
+
     if (!items.length) {
-      debugBody.innerHTML = '<p class="empty-msg">まだデバッグログがありません。「バグ: 〇〇」で送信するとここに溜まります。</p>';
+      debugBody.innerHTML = tb + '<p class="empty-msg">該当するログがありません。</p>';
       return;
     }
-    let h = `<p style="font-size:12px;color:var(--dim);margin:0 0 10px">${items.length}件（新しい順）</p>`;
+    let h = tb + `<p class="debug-count">${items.length}件（新しい順）</p>`;
     items.forEach(it => {
       const meta = [
         it.status ? esc(it.status) : '',
         it.date ? `日付 ${esc(it.date)}` : '',
         it.created ? esc(it.created) : '',
       ].filter(Boolean).join(' · ');
-      h += `<div class="debug-item">
+      const pid = esc(it.page_id || '');
+      h += `<div class="debug-item" data-pageid="${pid}">
         <div class="debug-meta">${meta || '—'}</div>
         <div class="debug-item-title">${esc(it.title || '(無題)')}</div>
         ${it.content ? `<div class="debug-content">${esc(it.content)}</div>` : ''}
         ${it.has_context ? `<details class="debug-details"><summary>会話コンテキスト</summary><pre>${esc(it.context || '')}</pre></details>` : ''}
+        <div class="debug-actions">
+          <span class="debug-actions-label">ステータス</span>
+          <button type="button" class="debug-status-btn" data-pageid="${pid}" data-status="未対応">未対応</button>
+          <button type="button" class="debug-status-btn" data-pageid="${pid}" data-status="対応中">対応中</button>
+          <button type="button" class="debug-status-btn" data-pageid="${pid}" data-status="完了">完了</button>
+        </div>
       </div>`;
     });
     debugBody.innerHTML = h;
   }
+
+  btnDebugList.addEventListener('click', async () => {
+    debugModal.classList.add('open');
+    debugBody.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+    try {
+      renderDebugModal(await fetchDebugList());
+    } catch (e) {
+      debugBody.innerHTML = '<p class="empty-msg">取得できませんでした。</p>';
+    }
+  });
+
+  debugModal.addEventListener('click', async (e) => {
+    if (e.target === debugModal) debugModal.classList.remove('open');
+
+    const fb = e.target.closest('.debug-filter-btn');
+    if (fb) {
+      e.preventDefault();
+      e.stopPropagation();
+      debugListFilter = fb.dataset.dbgFilter || '__all__';
+      debugBody.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+      try {
+        renderDebugModal(await fetchDebugList());
+      } catch (err) {
+        debugBody.innerHTML = '<p class="empty-msg">取得できませんでした。</p>';
+      }
+      return;
+    }
+
+    const sb = e.target.closest('.debug-status-btn');
+    if (sb) {
+      e.preventDefault();
+      e.stopPropagation();
+      const pageId = sb.dataset.pageid;
+      const st = sb.dataset.status;
+      sb.disabled = true;
+      try {
+        await post('/debug/status', { page_id: pageId, status: st });
+        renderDebugModal(await fetchDebugList());
+      } catch (err) {
+        sb.disabled = false;
+        alert('ステータス更新に失敗しました');
+      }
+    }
+  });
+
   debugClose.addEventListener('click', () => debugModal.classList.remove('open'));
-  debugModal.addEventListener('click', e => { if (e.target === debugModal) debugModal.classList.remove('open'); });
 }
 
 // ── Model modal ───────────────────────────────────
@@ -640,6 +823,32 @@ msgInput.addEventListener('keydown', e => {
 btnSend.addEventListener('click', handleSend);
 
 // ── Copy chat log ─────────────────────────────────
+document.getElementById('btnCopyPageUrl')?.addEventListener('click', async () => {
+  let url = String(location.href).split('#')[0];
+  try {
+    const h = await get('/health');
+    if (h.kage_public_url) {
+      url = String(h.kage_public_url).replace(/\/$/, '') + '/';
+    }
+  } catch (e) { /* 現在のURL */ }
+  try {
+    await navigator.clipboard.writeText(url);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = url;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+  addMsg(
+    'kage',
+    'このページのURLをコピーしました。<br><span style="font-size:12px;word-break:break-all;color:var(--dim)">' +
+      esc(url) +
+      '</span><br><span style="font-size:12px;color:var(--muted)">Notionに貼り付けてご利用ください。</span>'
+  );
+});
+
 document.getElementById('btnCopyLog').addEventListener('click', () => {
   const rows = chatArea.querySelectorAll('.row');
   const lines = [];
@@ -667,14 +876,31 @@ document.getElementById('btnCopyLog').addEventListener('click', () => {
 async function showOpeningLine() {
   showTyping();
   try {
-    const data = await get('/opening');
+    let openUrl = '/opening';
+    if (!sessionId) openUrl += '?bootstrap_session=1';
+    else openUrl += '?session_id=' + encodeURIComponent(sessionId);
+    const data = await get(openUrl);
     hideTyping();
+    if (data.session_id) {
+      sessionId = data.session_id;
+      sessionStorage.setItem('kage_session', sessionId);
+    }
     if (data.line) {
-      addMsg('kage', `<div class="opening-line"><span class="opening-kicker">影</span>${esc(data.line)}</div>`);
+      addMsg(
+        'kage',
+        `<div class="opening-line"><span class="opening-kicker">影</span>${esc(data.line)}</div>`,
+        '',
+        { noScroll: true }
+      );
     }
   } catch (e) {
     hideTyping();
-    addMsg('kage', '<div class="opening-line"><span class="opening-kicker">影</span>本日もよろしくお願いいたします。</div>');
+    addMsg(
+      'kage',
+      '<div class="opening-line"><span class="opening-kicker">影</span>本日もよろしくお願いいたします。</div>',
+      '',
+      { noScroll: true }
+    );
   }
 }
 
@@ -686,7 +912,9 @@ async function showMorningBriefing() {
 
   showTyping();
   try {
-    const data = await get('/morning');
+    let mUrl = '/morning';
+    if (sessionId) mUrl += '?session_id=' + encodeURIComponent(sessionId);
+    const data = await get(mUrl);
     hideTyping();
     if (data.message) {
       const sections = data.message.split(/(?=【)/);
@@ -705,9 +933,55 @@ async function showMorningBriefing() {
           html += '<div class="think-item">' + esc(trimmed) + '</div>';
         }
       }
-      addMsg('kage', '<div class="think-section">' + (html || esc(data.message)) + '</div>');
+      let newsBlock = '';
+      if (data.news && data.news.enabled && data.news.items && data.news.items.length) {
+        let sum =
+          '📰 本日のRSSリンク（' + esc(String(data.news.items.length)) + '件）';
+        const top = data.news.interest && data.news.interest.top_terms;
+        if (top && top.length) {
+          sum +=
+            ' · 興味: ' +
+            esc(top.slice(0, 6).join(', ')) +
+            (top.length > 6 ? '…' : '');
+        }
+        newsBlock =
+          '<details class="morning-news-links"><summary>' +
+          sum +
+          '</summary><div class="morning-news-body">';
+        data.news.items.slice(0, 10).forEach(it => {
+          const t = esc(it.title || '');
+          const u = esc(it.link || '#');
+          newsBlock +=
+            '<div class="morning-news-row"><a href="' +
+            u +
+            '" target="_blank" rel="noopener noreferrer">' +
+            t +
+            '</a><span class="morning-news-src">' +
+            esc(it.source || '') +
+            '</span></div>';
+        });
+        newsBlock += '</div></details>';
+      }
+      addMsg(
+        'kage',
+        '<div class="think-section">' + (html || esc(data.message)) + '</div>' + newsBlock,
+        '',
+        { noScroll: true }
+      );
+      if (data.news_feedback_prompt) {
+        addMsg(
+          'kage',
+          '<div class="news-feedback-invite">ひとつだけ教えてください。今朝のニュースの出し方、'
+            + '「もっと見たいテーマ」と「減らしたいテーマ」はありますか？'
+            + '<span class="news-feedback-hint">（「特にない」でも大丈夫です）</span></div>',
+          '',
+          { noScroll: true }
+        );
+      }
+      if (!String(data.message).includes('APIキーが未設定')) {
+        localStorage.setItem('kage_morning', today);
+      }
     }
-    localStorage.setItem('kage_morning', today);
   } catch(e) {
     hideTyping();
   }
@@ -719,4 +993,8 @@ async function showMorningBriefing() {
   showWelcome();
   await showOpeningLine();
   await showMorningBriefing();
+  // 長い起動メッセージで末尾へ飛ぶと日付・時刻が見切れるので、常に先頭から読めるようにする
+  requestAnimationFrame(() => {
+    chatArea.scrollTop = 0;
+  });
 })();
