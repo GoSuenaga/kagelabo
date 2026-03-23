@@ -1,0 +1,49 @@
+{
+  "spreadsheets": {
+    "vantan_vlog_master": {
+      "sheet_id": "1yyvxMYsaChW1nnnua1owfRuk673keHkoK3zvVVnIDKQ",
+      "url": "https://docs.google.com/spreadsheets/d/1yyvxMYsaChW1nnnua1owfRuk673keHkoK3zvVVnIDKQ/",
+      "description": "Vlog風20本用マスター（workflow_001）",
+      "created": "2026-03-23",
+      "status": "completed"
+    },
+    "vantan_school_v1": {
+      "sheet_id": "1gVGbo_fKC7sQ_B06P4M15VWn9XTMKOyKuv_Fi0VfJlc",
+      "url": "https://docs.google.com/spreadsheets/d/1gVGbo_fKC7sQ_B06P4M15VWn9XTMKOyKuv_Fi0VfJlc/",
+      "description": "スクール別動画（親×子ども構成）v1",
+      "created": "2026-03-23",
+      "status": "active"
+    }
+  },
+  "workflows": {
+    "workflow_001": {
+      "name": "Vlog風広告20本",
+      "spreadsheet": "vantan_vlog_master",
+      "output_dir": "output/workflow_001",
+      "status": "completed"
+    },
+    "workflow_002": {
+      "name": "スクール別親子広告",
+      "spreadsheet": "vantan_school_v1",
+      "output_dir": "output/workflow_002",
+      "status": "in_progress",
+      "patterns": {
+        "no01": {
+          "school": "バンタンデザイン研究所",
+          "course": "デザインやファッション",
+          "child": "男の子",
+          "bgm": "01_hopeful",
+          "cuts": 11
+        }
+      }
+    }
+  },
+  "defaults": {
+    "narration_volume": "100%",
+    "se_volume": "30%",
+    "bgm_volume": "30%",
+    "voice_id": "0ptCJp0xgdabdcpVtCB5",
+    "voice_style": "落ち着いた女性",
+    "se_version": "真面目バージョン"
+  }
+}

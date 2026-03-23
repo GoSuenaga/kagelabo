@@ -1,6 +1,8 @@
 # Secrets
 .env
 credentials.json
+oauth_credentials.json
+token.json
 
 # OS
 .DS_Store
@@ -14,5 +16,21 @@ venv/
 
 # Claude Code
 .claude/
-oauth_credentials.json
-token.json
+
+# Media (large files — stored separately)
+output/
+clients/
+*.mp4
+*.mp3
+*.wav
+*.jpg
+*.jpeg
+*.png
+
+# Old Dify files
+vantan_fixed.yml
+vantan_ad_workflow.yml
+*.gs
+
+# Notion secretary (separate project)
+notion-secretary-api/
