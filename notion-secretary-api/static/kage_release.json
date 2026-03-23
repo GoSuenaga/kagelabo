@@ -1,5 +1,5 @@
 {
-  "app_version": "0.148",
-  "release_date": "2026-03-26",
-  "summary": "ウェルカム：詳細マニュアルを details 内に集約（既定は畳む）"
+  "app_version": "0.149",
+  "release_date": "2026-03-23",
+  "summary": "議事録・Notion rich_text を UTF-16 単位で分割（2000文字超エラー対策）"
 }

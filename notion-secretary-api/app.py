@@ -63,6 +63,16 @@ DB = {
 # 議事録 DB のプロパティ名（Notion スキーマと一致させる）
 NOTION_MINUTES_DATETIME_PROP = os.environ.get("NOTION_MINUTES_DATETIME_PROP", "日時").strip() or "日時"
 NOTION_MINUTES_CONTENT_PROP = os.environ.get("NOTION_MINUTES_CONTENT_PROP", "内容").strip() or "内容"
+# 空なら要約+原文を「内容」1列にまとめる。別列に生テキストを分けたいときだけ「原文」等を指定
+NOTION_MINUTES_RAW_PROP = os.environ.get("NOTION_MINUTES_RAW_PROP", "").strip()
+# 文字数がこの以上なら Gemini で要約（原文は別プロパティまたは内容の後半に保存）
+KAGE_MINUTES_SUMMARIZE_THRESHOLD = int(os.environ.get("KAGE_MINUTES_SUMMARIZE_THRESHOLD", "1200"))
+KAGE_MINUTES_SUMMARIZE_ENABLED = os.environ.get("KAGE_MINUTES_SUMMARIZE", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+
+# Notion rich_text はセグメントあたり約2000 UTF-16 単位（APIの length と一致）
+NOTION_RICH_TEXT_MAX_UTF16 = int(os.environ.get("KAGE_NOTION_RICH_TEXT_MAX_UTF16", "1800"))
 
 # Tasks DB の所要時間（分）。Notion に number プロパティを追加して名前を合わせる（無ければ保存時に自動でスキップ）
 NOTION_TASK_MINUTES_PROP = os.environ.get("NOTION_TASK_MINUTES_PROP", "見積分")
@@ -576,13 +586,44 @@ def _rich_text_prop(key: str, text: str) -> dict:
     return {key: {"rich_text": [{"text": {"content": text}}]}}
 
 
-def _rich_text_prop_chunked(key: str, text: str, chunk: int = 1990) -> dict:
-    """Notion rich_text は1セグメント約2000文字上限のため分割して保存"""
+def _notion_utf16_len(s: str) -> int:
+    """Notion / JS と同じ「文字列長」（UTF-16 コードユニット数）"""
+    return len(s.encode("utf-16-le")) // 2
+
+
+def _split_text_for_notion_rich_text(text: str, max_utf16: int) -> list[str]:
+    """rich_text の各 text.content が max_utf16 を超えないよう分割（絵文字等は Python len と一致しない）"""
+    if not text:
+        return []
+    parts: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        lo, hi = i + 1, n
+        best = i
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if _notion_utf16_len(text[i:mid]) <= max_utf16:
+                best = mid
+                lo = mid + 1
+            else:
+                hi = mid - 1
+        if best <= i:
+            best = i + 1
+        parts.append(text[i:best])
+        i = best
+    return parts
+
+
+def _rich_text_prop_chunked(key: str, text: str, max_utf16: Optional[int] = None) -> dict:
+    """Notion rich_text は1セグメント約2000 UTF-16 単位上限のため分割して保存"""
+    limit = NOTION_RICH_TEXT_MAX_UTF16 if max_utf16 is None else max_utf16
+    if limit < 1:
+        limit = 1800
     if not text:
         return _rich_text_prop(key, "")
-    segs = []
-    for i in range(0, len(text), chunk):
-        segs.append({"type": "text", "text": {"content": text[i : i + chunk]}})
+    pieces = _split_text_for_notion_rich_text(text, limit)
+    segs = [{"type": "text", "text": {"content": p}} for p in pieces]
     return {key: {"rich_text": segs}}
 
 
@@ -637,16 +678,140 @@ def _minutes_page_properties(title: str, when_iso: str, content: str) -> dict:
     props = {**_title_prop(title)}
     props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
     body = (content or "").strip() or " "
-    props.update(_rich_text_prop(NOTION_MINUTES_CONTENT_PROP, body))
+    props.update(_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, body))
     return props
 
 
-def _save_minutes_to_notion(title: str, when_raw: str, content: str) -> None:
+def _minutes_body_props(summary_text: str, raw_stored: Optional[str]) -> dict:
+    """要約を「内容」に。原文は NOTION_MINUTES_RAW_PROP があれば別列、なければ内容に結合。"""
+    summ = (summary_text or "").strip() or " "
+    raw = (raw_stored or "").strip()
+    raw_key = NOTION_MINUTES_RAW_PROP
+    if raw and raw_key:
+        return {
+            **_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, summ),
+            **_rich_text_prop_chunked(raw_key, raw),
+        }
+    if raw:
+        merged = f"## 要約\n\n{summ}\n\n---\n\n## 原文（未加工）\n\n{raw}"
+        return _rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, merged)
+    return _rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, summ)
+
+
+def _gemini_summarize_meeting_minutes(raw: str, title_hint: str) -> tuple[str, str]:
+    """
+    文字起こし風の長文から要約Markdownとタイトル案を返す。
+    戻り: (summary_markdown, title_or_empty)
+    """
+    if not GEMINI_API_KEY:
+        return raw, ""
+    clip = raw[:28000]
+    if len(raw) > 28000:
+        clip += "\n\n（…以降省略）"
+    prompt = f"""以下は会議・プレゼンなどの記録（文字起こし・メモ）の原文です。
+Notionの議事録に保存するため、JSONのみで返してください（他の文字禁止）。
+
+ルール:
+- summary にはマークダウンで次を含める: 短い全体要約（200〜800字程度）、## 決定事項・合意、## 論点・背景、## 次アクション（あれば）
+- 固有名詞・数字・会社名・プロジェクト名はできるだけ原文どおり残す
+- title は会議名として適切な60文字以内。不明なら null
+- 推測で事実を捏造しない。原文に無いことは書かない
+
+既存のタイトル候補（参考・空なら無視）: {title_hint[:120]}
+
+原文:
+---
+{clip}
+---
+
+出力JSON形式:
+{{"title": "string or null", "summary": "string"}}"""
+    gemini_url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+        f":generateContent?key={GEMINI_API_KEY}"
+    )
+    resp = requests.post(
+        gemini_url,
+        json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 0.2,
+                "maxOutputTokens": 8192,
+            },
+        },
+        timeout=90,
+    )
+    resp.raise_for_status()
+    raw_json = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+    cleaned = raw_json.strip()
+    if cleaned.startswith("```"):
+        cleaned = re.sub(r"^```\w*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```$", "", cleaned).strip()
+    data = json.loads(cleaned)
+    summary = (data.get("summary") or "").strip()
+    new_title = (data.get("title") or "").strip()
+    if not summary or len(summary) < 40:
+        return raw, new_title
+    return summary, new_title
+
+
+def _save_minutes_to_notion(
+    title: str,
+    when_raw: str,
+    content: str,
+    *,
+    skip_summarize: bool = False,
+) -> dict:
+    """
+    長文は要約して「内容」に、原文は「原文」列または内容の後半に保存。
+    戻り: {"title": str, "summarized": bool}
+    """
     if not _minutes_db_configured():
         raise RuntimeError("NOTION_DB_MINUTES が未設定です")
     when_iso = _normalize_minutes_when(when_raw)
-    props = _minutes_page_properties(title, when_iso, content)
-    _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
+    raw_full = (content or "").strip() or " "
+    out_title = (title or "").strip() or _first_line_as_minutes_title(raw_full)
+    summarized = False
+    summary_body = raw_full
+
+    if (
+        not skip_summarize
+        and KAGE_MINUTES_SUMMARIZE_ENABLED
+        and GEMINI_API_KEY
+        and len(raw_full) >= KAGE_MINUTES_SUMMARIZE_THRESHOLD
+    ):
+        try:
+            summ, ai_title = _gemini_summarize_meeting_minutes(raw_full, out_title)
+            if summ and len(summ) >= 40:
+                summary_body = summ
+                summarized = True
+                if ai_title and len(ai_title) <= 200:
+                    out_title = ai_title
+        except Exception as e:
+            logger.warning("[minutes] Gemini summarize failed, saving raw only: %s", e)
+
+    props = {**_title_prop(out_title[:200])}
+    props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
+    props.update(_minutes_body_props(summary_body, raw_full if summarized else None))
+
+    try:
+        _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
+    except HTTPException:
+        # 「原文」列が無い・名前不一致など: 要約+原文を「内容」だけにまとめて再試行
+        if summarized and raw_full:
+            logger.warning("[minutes] retry with merged 内容 (separate raw property may be missing)")
+            props = {**_title_prop(out_title[:200])}
+            props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
+            merged = (
+                f"## 要約\n\n{summary_body}\n\n---\n\n## 原文（未加工）\n\n{raw_full}"
+            )
+            props.update(_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, merged))
+            _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
+        else:
+            raise
+
+    return {"title": out_title, "summarized": summarized}
 
 
 def _first_line_as_minutes_title(text: str, fallback: str = "会議・打ち合わせ") -> str:
@@ -1399,6 +1564,7 @@ class MinutesRequest(BaseModel):
     title: str
     when: str = ""
     content: str = ""
+    skip_summarize: bool = False  # True なら要約せず全文を「内容」にそのまま
 
 
 class KageNotionSyncBody(BaseModel):
@@ -1709,8 +1875,13 @@ def add_minutes(req: MinutesRequest):
         )
     title = (req.title or "").strip() or "会議・打ち合わせ"
     try:
-        _save_minutes_to_notion(title, req.when, req.content)
-        return {"message": f"議事録を保存しました: {title}", "saved": True}
+        meta = _save_minutes_to_notion(title, req.when, req.content, skip_summarize=req.skip_summarize)
+        t = meta["title"]
+        if meta.get("summarized"):
+            msg = f"議事録を保存しました（要約＋原文を保存）: {t}"
+        else:
+            msg = f"議事録を保存しました: {t}"
+        return {"message": msg, "saved": True, "title": t, "summarized": bool(meta.get("summarized"))}
     except Exception as e:
         logger.error("[minutes] save failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -1918,7 +2089,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 
 分類カテゴリ:
 - memo: 買い物・備忘・覚え書き・短いメモ（実行する「仕事タスク」ではないもの）
-- minutes: 会議・打ち合わせ・定例の**議事録・MTGメモ**をNotionに**保存・記録**する内容。決定事項・アクション・要約の本文。単発の作業TODO（task）ではない。備忘（memo）でもない
+- minutes: 会議・打ち合わせ・定例の**議事録・MTGメモ**をNotionに**保存・記録**する内容。決定事項・アクション・要約の本文。単発の作業TODO（task）ではない。備忘（memo）でもない。長い文字起こしは保存時に要約され原文も残る（システム側）
 - task: 仕事・作業として実行するTODO（企画書作成、返信、実装、修正、資料作成など）。NotionのTasks DBに入る
 - idea: アイデア・企画の種・思いつき（すぐやる作業ではない）
 - schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
@@ -2628,13 +2799,17 @@ def chat(req: ChatRequest):
             title = _first_line_as_minutes_title(content)
         when_raw = ((classified.get("date") or "").strip())
         try:
-            _save_minutes_to_notion(title, when_raw, content)
+            meta = _save_minutes_to_notion(title, when_raw, content)
             when_disp = _normalize_minutes_when(when_raw)
-            return _respond({
-                "intent": "minutes",
-                "message": f"議事録に保存しました: {title}\n日時: {when_disp}",
-                "saved": True,
-            })
+            t_saved = meta.get("title") or title
+            if meta.get("summarized"):
+                msg = (
+                    f"議事録に保存しました（Geminiで要約し、原文も残しています）: {t_saved}\n"
+                    f"日時: {when_disp}"
+                )
+            else:
+                msg = f"議事録に保存しました: {t_saved}\n日時: {when_disp}"
+            return _respond({"intent": "minutes", "message": msg, "saved": True})
         except Exception as e:
             logger.error("[chat minutes] %s", e)
             return _respond({
