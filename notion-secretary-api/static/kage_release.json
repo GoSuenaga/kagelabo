@@ -1,5 +1,5 @@
 {
-  "app_version": "0.154",
+  "app_version": "0.155",
   "release_date": "2026-03-23",
-  "summary": "議事録: Notion APIからDBスキーマ自動インポート"
+  "summary": "/health に議事録DBの列名ヒント（内容/名前逆転時）"
 }

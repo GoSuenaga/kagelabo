@@ -703,6 +703,20 @@ def _resolve_raw_prop_notion(
     return "原文"
 
 
+def _minutes_schema_naming_hint(title_key: str, content_key: str) -> Optional[str]:
+    """
+    列の表示名が日本語の直感と逆のときのヒント（保存は正しいが見た目が紛らわしい）。
+    典型: タイトル型が「内容」、本文 rich_text が「名前」→ 本文が「名前」欄に入って違和感。
+    """
+    if title_key == "内容" and content_key == "名前":
+        return (
+            "いまのDBは「内容」が会議名(タイトル型)、「名前」に本文が入っています。"
+            "Notionでプロパティの表示名だけ変えるとすっきりします（種類はそのまま）。"
+            "例: タイトル列→「会議名」、テキスト列→「本文」または「議事録」。"
+        )
+    return None
+
+
 def _minutes_schema_from_properties(properties: dict) -> dict:
     title_o = _env_minutes_override("NOTION_MINUTES_TITLE_PROP")
     date_o = _env_minutes_override("NOTION_MINUTES_DATETIME_PROP")
@@ -718,7 +732,7 @@ def _minutes_schema_from_properties(properties: dict) -> dict:
             )
         title_key = title_o
     else:
-        prefer_t = ("名前", "Name", "タイトル", "Title")
+        prefer_t = ("名前", "会議名", "タイトル", "議題", "Name", "Title")
         title_key = next((p for p in prefer_t if p in title_keys), title_keys[0])
 
     date_keys = [k for k, v in properties.items() if v.get("type") == "date"]
@@ -749,17 +763,22 @@ def _minutes_schema_from_properties(properties: dict) -> dict:
             raise ValueError(
                 "rich_text 型のプロパティがありません（本文用のテキスト列を追加してください）"
             )
-        prefer_c = ("内容", "本文", "記録", "議事", "メモ", "Body", "Notes")
+        # 「名前」は人名の連想で本文に不適切なので、他に rich_text があれば後回し
+        prefer_c = ("内容", "本文", "記録", "議事", "議事録", "メモ", "Body", "Notes", "名前")
         content_key = next((p for p in prefer_c if p in rich_keys), rich_keys[0])
 
     raw_key = _resolve_raw_prop_notion(properties, content_key, title_key, date_key)
 
-    return {
+    out = {
         "title_prop": title_key,
         "datetime_prop": date_key,
         "content_prop": content_key,
         "raw_prop": raw_key,
     }
+    nh = _minutes_schema_naming_hint(title_key, content_key)
+    if nh:
+        out["naming_hint"] = nh
+    return out
 
 
 _minutes_schema_lock = threading.Lock()
@@ -1793,6 +1812,8 @@ def _minutes_health_schema_fields() -> dict:
             "content": ms["content_prop"],
             "raw": ms.get("raw_prop"),
         }
+        if ms.get("naming_hint"):
+            out["minutes_naming_hint"] = ms["naming_hint"]
     except Exception as e:
         out["minutes_schema_error"] = str(e)[:400]
     return out
