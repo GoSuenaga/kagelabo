@@ -1,5 +1,5 @@
 {
-  "app_version": "0.155",
+  "app_version": "0.156",
   "release_date": "2026-03-23",
-  "summary": "/health に議事録DBの列名ヒント（内容/名前逆転時）"
+  "summary": "PC向けチャットUI: flexレイアウト・バブル折り返し・視認性"
 }

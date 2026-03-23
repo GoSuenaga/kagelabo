@@ -414,7 +414,7 @@ async function handleSend() {
   if (pendingImage) {
     const thumb = document.createElement('img');
     thumb.src = previewImg.src;
-    thumb.style.cssText = 'max-height:80px;border-radius:6px;margin-top:4px;display:block';
+    thumb.className = 'user-sent-image';
     chatArea.lastElementChild.querySelector('.bubble').appendChild(thumb);
   }
   msgInput.value = ''; autoResize();
