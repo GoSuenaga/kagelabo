@@ -83,6 +83,31 @@
     </div>
   </div>
 
+  <!-- Minutes (議事録) Modal -->
+  <div class="modal-overlay" id="minutesModal">
+    <div class="modal-sheet modal-sheet-tall">
+      <div class="modal-bar"></div>
+      <h3 class="modal-title">📋 議事録を保存</h3>
+      <div class="form-group">
+        <label>タイトル <span class="req">*</span></label>
+        <input type="text" id="minTitle" placeholder="例: CA定例 / キックオフ" autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label>日時 <span class="req">*</span></label>
+        <input type="datetime-local" id="minWhen">
+        <p class="form-hint">端末のローカル時刻で保存されます（KAGE の KAGE_TZ と整合）</p>
+      </div>
+      <div class="form-group">
+        <label>本文</label>
+        <textarea id="minBody" rows="6" placeholder="決定事項・メモ・次アクションなど"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="minutesCancel">キャンセル</button>
+        <button class="btn-primary" id="minutesSave">保存する</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Upcoming Modal -->
   <div class="modal-overlay" id="upcomingModal">
     <div class="modal-sheet">
@@ -115,6 +140,7 @@
   <footer class="footer">
     <div class="qa-row">
       <button class="qa" data-action="memo">📝<span>メモ</span></button>
+      <button class="qa" data-action="minutes">📋<span>議事録</span></button>
       <button class="qa" data-action="idea">💡<span>アイデア</span></button>
       <button class="qa" data-action="schedule">📅<span>予定</span></button>
       <button class="qa" data-action="brain">🧠<span>整理</span></button>

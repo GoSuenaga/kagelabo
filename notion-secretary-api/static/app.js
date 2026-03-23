@@ -18,6 +18,13 @@ const schedMemo     = document.getElementById('schedMemo');
 const modalSave     = document.getElementById('modalSave');
 const modalCancel   = document.getElementById('modalCancel');
 
+const minutesModal  = document.getElementById('minutesModal');
+const minTitle      = document.getElementById('minTitle');
+const minWhen       = document.getElementById('minWhen');
+const minBody       = document.getElementById('minBody');
+const minutesSave   = document.getElementById('minutesSave');
+const minutesCancel = document.getElementById('minutesCancel');
+
 const upcomingModal = document.getElementById('upcomingModal');
 const upcomingBody  = document.getElementById('upcomingBody');
 const upcomingClose = document.getElementById('upcomingClose');
@@ -44,6 +51,12 @@ function fmtDateHeader() {
   return d.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
 }
 function todayStr() { return new Date().toISOString().slice(0,10); }
+/** datetime-local 用（端末ローカル、タイムゾーンオフセット補正） */
+function nowLocalDatetimeInputValue() {
+  const d = new Date();
+  d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+  return d.toISOString().slice(0, 16);
+}
 function fmtDate(s) {
   if (!s) return '';
   const d = new Date(s);
@@ -112,6 +125,7 @@ function showWelcome() {
           <p class="welcome-details-lead">影が Notion の管理をサポートいたします。</p>
           <ul class="welcome-hint-list">
             <li>📝 メモ・💡 アイデア → 保存</li>
+            <li>📋 議事録 → 会議タイトル・日時・本文を Notion に蓄積</li>
             <li>📅 予定ボタン → 日時つきで保存</li>
             <li>🧠 整理ボタン → タスクを整理</li>
             <li>🐛 バグボタン → 不具合を Notion に記録</li>
@@ -148,7 +162,7 @@ async function get(path) {
 
 // ── Response renderer ─────────────────────────────
 const BADGE = {
-  memo:'📝 メモ', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶',
+  memo:'📝 メモ', minutes:'📋 議事録', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶',
   done:'🗑️ 完了', debug:'🐛 バグ報告',
   sleep_bedtime:'💤 就寝', sleep_wake:'🌅 起床', health_go:'🚪 外出', health_back:'🏠 帰宅',
   task:'✅ タスク',
@@ -177,7 +191,7 @@ function renderResponse(data, originalText) {
   }
 
   // memo / profile / debug などは saved===true のときだけ「保存済み」表示（失敗時の誤表示防止）
-  if (['memo','idea','task','schedule','profile','debug'].includes(intent)) {
+  if (['memo','minutes','idea','task','schedule','profile','debug'].includes(intent)) {
     const b = BADGE[intent] ? `<span class="badge-intent">${BADGE[intent]}</span><br>` : '';
     const foot = saved === true
       ? '<br><span class="badge-save">✓ Notion保存済み</span>'
@@ -411,6 +425,7 @@ document.querySelectorAll('.qa').forEach(btn => {
   btn.addEventListener('click', async () => {
     const a = btn.dataset.action;
     if (a === 'schedule') { openSched(); return; }
+    if (a === 'minutes') { openMinutes(); return; }
     if (a === 'brain') { handleThink(); return; }
     if (a === 'cleanup') { handleCleanup(); return; }
     const prefix = { memo:'メモ: ', idea:'アイデア: ', bug:'バグ: ' }[a];
@@ -524,6 +539,48 @@ schedModal.addEventListener('click', e => { if(e.target===schedModal) closeSched
 [schedTitle,schedDate,schedMemo].forEach(el =>
   el.addEventListener('keydown', e => { if(e.key==='Enter'){e.preventDefault();saveSched();} })
 );
+
+// ── Minutes modal（議事録）────────────────────────
+function openMinutes() {
+  if (!minTitle || !minWhen || !minutesModal) return;
+  minWhen.value = nowLocalDatetimeInputValue();
+  minTitle.value = '';
+  if (minBody) minBody.value = '';
+  minutesModal.classList.add('open');
+  setTimeout(() => minTitle.focus(), 300);
+}
+function closeMinutes() { minutesModal && minutesModal.classList.remove('open'); }
+
+async function saveMinutes() {
+  if (!minTitle || !minWhen) return;
+  const title = minTitle.value.trim();
+  const when = minWhen.value.trim();
+  const content = (minBody && minBody.value.trim()) || '';
+  if (!title || !when) {
+    minTitle.style.borderColor = !title ? 'var(--red)' : '';
+    minWhen.style.borderColor = !when ? 'var(--red)' : '';
+    return;
+  }
+  minTitle.style.borderColor = minWhen.style.borderColor = '';
+  minutesSave.disabled = true;
+  closeMinutes();
+  addUser(`議事録: ${title}（${when}）`);
+  showTyping();
+  try {
+    await post('/minutes', { title, when, content });
+    hideTyping();
+    addMsg('kage',`📋 <strong>${esc(title)}</strong><br>${esc(when)}<br><span class="badge-save">✓ 議事録 DB に保存しました</span>`,'saved');
+  } catch (e) {
+    hideTyping();
+    addMsg('kage',`ボス、議事録の保存に失敗しました。NOTION_DB_MINUTES が未設定の可能性があります。`,'error');
+  } finally { minutesSave.disabled = false; }
+}
+
+if (minutesSave && minutesCancel && minutesModal) {
+  minutesSave.addEventListener('click', saveMinutes);
+  minutesCancel.addEventListener('click', closeMinutes);
+  minutesModal.addEventListener('click', e => { if (e.target === minutesModal) closeMinutes(); });
+}
 
 // ── Upcoming modal ────────────────────────────────
 btnUpcoming.addEventListener('click', async () => {

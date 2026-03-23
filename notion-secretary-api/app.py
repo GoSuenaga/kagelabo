@@ -56,7 +56,13 @@ DB = {
     "Debug":    os.environ.get("NOTION_DB_DEBUG",    "32bc70f7-0203-817e-8310-d3f87d3d8b10"),
     # 睡眠ログ（未設定ならセッション内だけで就寝→起床を保持）create_sleep_database.py で作成
     "Sleep":    os.environ.get("NOTION_DB_SLEEP", ""),
+    # 議事録（任意）create_minutes_database.py で作成。プロパティ名は環境変数で上書き可
+    "Minutes":  os.environ.get("NOTION_DB_MINUTES", "").strip(),
 }
+
+# 議事録 DB のプロパティ名（Notion スキーマと一致させる）
+NOTION_MINUTES_DATETIME_PROP = os.environ.get("NOTION_MINUTES_DATETIME_PROP", "日時").strip() or "日時"
+NOTION_MINUTES_CONTENT_PROP = os.environ.get("NOTION_MINUTES_CONTENT_PROP", "内容").strip() or "内容"
 
 # Tasks DB の所要時間（分）。Notion に number プロパティを追加して名前を合わせる（無ければ保存時に自動でスキップ）
 NOTION_TASK_MINUTES_PROP = os.environ.get("NOTION_TASK_MINUTES_PROP", "見積分")
@@ -419,6 +425,7 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 - 睡眠ログのデータがあるとき、無理に触れなくてよいが、体調・ペースの相談ではさりげなく活かしてよい
 - タスクに「見積分（分）」が付いているデータは、優先度や時間の使い方の相談で具体的に活かしてよい
 - 世界史・哲学・一般教養・日本語の敬語・ビジネス作法など、ボス個人やNotionに紐づかない知識の質問には、学習済みの一般知識で的確に答える。一方、ボスの予定・契約・連絡先など固有の事実はデータに無ければ推測しない
+- 議事録（会議メモ）のデータがあるとき、決定事項・経緯の確認では参照してよい。長文の全文引用は避け、要点に留める
 
 Slack・Teams・社内チャット・社内メールの文面を求められたとき：
 - **既定は社内向けの短さ**。「社内」「Slack」「同僚」「チーム内」などのニュアンスがあれば、取引先向けの長い敬体・過剰な前置きは避け、**2〜5行・コピペしやすい**トーンを優先する
@@ -498,6 +505,9 @@ MORNING_SYSTEM_PROMPT = f"""\
 【直近のリマインド】
 ・〇〇（3日以内の締切・返済日・引き落とし等。なければ省略）
 
+【直近の議事録】（入力に議事録JSONがあるときだけ・1行）
+・会議名（日付）…要点のみ。なければこのセクションは省略
+
 【ひとこと】
 （ボスの状況を踏まえた短い一言。天気・体調への気遣いなど）
 
@@ -519,7 +529,7 @@ OPENING_LINE_SYSTEM_PROMPT = f"""\
 - 「〜しろ」「〜やれ」等の命令口調は禁止
 - 丁寧で短い。1〜2文、合計140文字以内
 - 「ボス」は使わないか、文末に一度だけ
-- 渡されたNotionデータ（プロフィール・メモ・予定・タスク）に書かれている事実だけを使う。ない内容を捏造しない
+- 渡されたNotionデータ（プロフィール・メモ・予定・タスク・議事録）に書かれている事実だけを使う。ない内容を捏造しない
 - プロフィールやメモから、ボスと影だけがわかるようなさりげない言及を1つ入れてよい（無理に入れない）
 - 今日の予定・タスク・締切がデータにあればさりげなく触れてよい（なくてもよい）
 - 心を和らげる、落ち着いたトーン。前置き・箇条書き・見出し・改行は禁止。本文のみ1ブロックで出力\
@@ -588,12 +598,62 @@ def _sleep_db_configured() -> bool:
     return bool((DB.get("Sleep") or "").strip())
 
 
+def _minutes_db_configured() -> bool:
+    return bool((DB.get("Minutes") or "").strip())
+
+
 def _iso_now_sleep() -> str:
     try:
         tz = ZoneInfo(KAGE_TZ)
     except Exception:
         tz = ZoneInfo("Asia/Tokyo")
     return datetime.now(tz).isoformat(timespec="seconds")
+
+
+def _normalize_minutes_when(raw: str) -> str:
+    """議事録の日時を Notion date.start 用に正規化（日付のみ・ローカル日時・空はいま）。"""
+    s = (raw or "").strip()
+    if not s:
+        return _iso_now_sleep()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", s):
+        return s
+    try:
+        zi = ZoneInfo(KAGE_TZ)
+    except Exception:
+        zi = ZoneInfo("Asia/Tokyo")
+    norm = s.replace("Z", "+00:00")
+    if "T" not in norm:
+        return _local_today().isoformat()
+    try:
+        dt = datetime.fromisoformat(norm)
+    except ValueError:
+        return _local_today().isoformat()
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=zi)
+    return dt.isoformat(timespec="minutes")
+
+
+def _minutes_page_properties(title: str, when_iso: str, content: str) -> dict:
+    props = {**_title_prop(title)}
+    props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
+    body = (content or "").strip() or " "
+    props.update(_rich_text_prop(NOTION_MINUTES_CONTENT_PROP, body))
+    return props
+
+
+def _save_minutes_to_notion(title: str, when_raw: str, content: str) -> None:
+    if not _minutes_db_configured():
+        raise RuntimeError("NOTION_DB_MINUTES が未設定です")
+    when_iso = _normalize_minutes_when(when_raw)
+    props = _minutes_page_properties(title, when_iso, content)
+    _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
+
+
+def _first_line_as_minutes_title(text: str, fallback: str = "会議・打ち合わせ") -> str:
+    line = (text or "").strip().split("\n", 1)[0].strip()
+    if not line:
+        return fallback
+    return line[:200]
 
 
 def _fmt_duration_mins(mins: int) -> str:
@@ -838,6 +898,8 @@ def _note_last_task(sid: str, page_id: Optional[str], title: str) -> None:
 def _looks_like_slack_or_forward_paste(text: str) -> bool:
     """Slack・チャットツールからのコピペっぽい長文か（タスク化のヒント）"""
     if len(text) < 50:
+        return False
+    if re.search(r"議事録|会議メモ|ミーティングノート|打ち合わせメモ|定例.*メモ|Minutes\b", text[:1200], re.I):
         return False
     if re.search(r"\[\d{1,2}:\d{2}\]", text):
         return True
@@ -1331,6 +1393,14 @@ class MemoRequest(BaseModel):
     content: str = ""
 
 
+class MinutesRequest(BaseModel):
+    """議事録（会議メモ）。when は YYYY-MM-DD または ISO 日時（空なら保存時刻＝KAGE_TZ）"""
+
+    title: str
+    when: str = ""
+    content: str = ""
+
+
 class KageNotionSyncBody(BaseModel):
     """POST /admin/kage-notion-sync … 既定は静的・動的どちらも同期"""
 
@@ -1361,6 +1431,7 @@ def health():
         "gemini_api_key_set": bool(GEMINI_API_KEY),
         "current_model": GEMINI_MODEL,
         "sleep_db_configured": _sleep_db_configured(),
+        "minutes_db_configured": _minutes_db_configured(),
         "kage_public_url": KAGE_PUBLIC_URL or None,
     }
 
@@ -1427,6 +1498,7 @@ def kage_meta_notion_export():
         "",
         "### 主な API（参考）",
         "- `POST /chat` … メイン会話・Notion保存",
+        "- `POST /minutes` … 議事録を Notion に保存（NOTION_DB_MINUTES 要）",
         "- `GET /morning` … 朝ブリーフ",
         "- `GET /opening` … 起動ひと言",
         "- `GET /brain` … Notionブレインデータ",
@@ -1627,6 +1699,23 @@ def add_memo(req: MemoRequest):
     return {"message": f"メモを追加しました: {req.title}"}
 
 
+@app.post("/minutes")
+def add_minutes(req: MinutesRequest):
+    """議事録を Minutes DB に追加（NOTION_DB_MINUTES 必須）"""
+    if not _minutes_db_configured():
+        raise HTTPException(
+            status_code=503,
+            detail="議事録DBが未設定です。create_minutes_database.py で作成し NOTION_DB_MINUTES を設定してください。",
+        )
+    title = (req.title or "").strip() or "会議・打ち合わせ"
+    try:
+        _save_minutes_to_notion(title, req.when, req.content)
+        return {"message": f"議事録を保存しました: {title}", "saved": True}
+    except Exception as e:
+        logger.error("[minutes] save failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 # ---------------------------------------------------------------------------
 # 内部データ取得関数（エンドポイント＋/chatから再利用）
 # ---------------------------------------------------------------------------
@@ -1641,7 +1730,7 @@ def _task_status_skip_set() -> set:
     return {s.strip() for s in raw.split(",") if s.strip()}
 
 
-def _task_row_to_summary(row: dict) -> Optional[dict]:
+def _task_row_to_summary(row: dict, *, skip_done_status: bool = True) -> Optional[dict]:
     """Tasks DB の1行を要約 dict に。アーカイブは None"""
     if row.get("archived"):
         return None
@@ -1651,10 +1740,26 @@ def _task_row_to_summary(row: dict) -> Optional[dict]:
     d = date_prop.get("start", "") if date_prop else ""
     status_prop = row["properties"].get("ステータス", {}).get("select")
     status = status_prop["name"] if status_prop else "未設定"
-    if status in _task_status_skip_set():
+    if skip_done_status and status in _task_status_skip_set():
         return None
     est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
     return {"title": name, "date": d, "status": status, "minutes": est}
+
+
+def _notion_date_on_local_calendar_day_filter(prop_name: str, day: date) -> dict:
+    """日付プロパティがそのローカル暦の1日に属する行を取得する。
+
+    `date.equals: YYYY-MM-DD` は時刻付きの値で取りこぼすことがある一方、
+    `_fetch_brain` / 朝ブリーフは `on_or_after`〜`on_or_before` のレンジで拾っているため、
+    「今日の予定」だけ空になるズレを防ぐ。
+    """
+    ds = day.isoformat()
+    return {
+        "and": [
+            {"property": prop_name, "date": {"on_or_after": ds}},
+            {"property": prop_name, "date": {"on_or_before": ds}},
+        ],
+    }
 
 
 def _fetch_recent_memo_snippets(limit: int = 10) -> list:
@@ -1681,7 +1786,7 @@ def _fetch_today() -> dict:
     win_end = (today_d + timedelta(days=TODAY_TASK_WINDOW_FUTURE_DAYS)).isoformat()
 
     schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
-        "filter": {"property": "日付", "date": {"equals": today}},
+        "filter": _notion_date_on_local_calendar_day_filter("日付", today_d),
         "sorts": [{"property": "日付", "direction": "ascending"}],
     })
     schedules = []
@@ -1702,11 +1807,30 @@ def _fetch_today() -> dict:
     })
     seen_ids: set = set()
     tasks: list = []
+    listed_task_ids: set = set()
     for row in tasks_data.get("results", []):
         seen_ids.add(row["id"])
-        summ = _task_row_to_summary(row)
+        summ = _task_row_to_summary(row, skip_done_status=True)
         if summ:
             tasks.append(summ)
+            listed_task_ids.add(row["id"])
+
+    # 朝ブリーフは直近タスクに「完了」も含むため、今日が期限の完了タスクだけここで取りこぼしていた
+    try:
+        today_tasks_data = _notion_post(f"/databases/{DB['Tasks']}/query", {
+            "filter": _notion_date_on_local_calendar_day_filter("日付", today_d),
+            "sorts": [{"property": "日付", "direction": "ascending"}],
+            "page_size": 50,
+        })
+        for row in today_tasks_data.get("results", []):
+            if row["id"] in listed_task_ids:
+                continue
+            summ = _task_row_to_summary(row, skip_done_status=False)
+            if summ:
+                tasks.append(summ)
+                listed_task_ids.add(row["id"])
+    except Exception as e:
+        logger.warning("[today] same-day tasks (incl. done) supplement skipped: %s", e)
 
     # 日付プロパティ未設定のタスクは従来フィルタに掛からないため、直近編集分を補助的に足す
     try:
@@ -1718,7 +1842,7 @@ def _fetch_today() -> dict:
         for row in undated.get("results", []):
             if row["id"] in seen_ids:
                 continue
-            summ = _task_row_to_summary(row)
+            summ = _task_row_to_summary(row, skip_done_status=True)
             if summ:
                 tasks.append(summ)
                 seen_ids.add(row["id"])
@@ -1732,6 +1856,7 @@ def _fetch_today() -> dict:
         "tasks_note": (
             "各タスクの date は多くが「期限日」。本日と異なっても、今日取り組む・期限が近いタスクとして案内してよい。"
             " date が空のタスクは直近で触った未完了分が補助的に含まれることがある。"
+            " 本日が期限でステータスが完了のタスクも一覧に含まれることがある（朝のブリーフと齟齬を防ぐため）。"
         ),
     }
     if not schedules and not tasks:
@@ -1793,6 +1918,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 
 分類カテゴリ:
 - memo: 買い物・備忘・覚え書き・短いメモ（実行する「仕事タスク」ではないもの）
+- minutes: 会議・打ち合わせ・定例の**議事録・MTGメモ**をNotionに**保存・記録**する内容。決定事項・アクション・要約の本文。単発の作業TODO（task）ではない。備忘（memo）でもない
 - task: 仕事・作業として実行するTODO（企画書作成、返信、実装、修正、資料作成など）。NotionのTasks DBに入る
 - idea: アイデア・企画の種・思いつき（すぐやる作業ではない）
 - schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
@@ -1818,11 +1944,15 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
   title はボスがやるべきこと1行に要約、content に依頼者・期限・URL・要点、minutes は null（システムが別経路で即保存する場合あり）
 - today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
 - taskとmemo: 買い物・備忘はmemo。仕事の実行項目はtask。迷ったら短文はmemo、明確な作業はtask
+- minutesとtask: 会議の記録・「以下議事録」・決定事項の**保存**はminutes。自分がやるべき1件の作業はtask
+- minutesとanswer: **保存・記録して**の意図で会議内容が中心ならminutes。「教えて」「どう思う」だけならanswer
 - taskでは、発言から所要時間（分）が読み取れるときだけ JSON の minutes に正の整数を入れる。無ければ minutes:null（システムが後で聞く）
 - 迷ったらanswerにする
 
 Few-shot例:
 "台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":"","minutes":null}}
+"CA定例の議事録を保存。3/20 15時〜。決定: 資料は前日まで" → {{"intent":"minutes","title":"CA定例","content":"3/20 15時〜。決定: 資料は前日まで","date":"2026-03-20","minutes":null}}
+"以下議事録です。\\n1. アジェンダA …" → {{"intent":"minutes","title":"会議","content":"1. アジェンダA …","date":"","minutes":null}}
 "RAGの動画修正、来週金曜締切" → {{"intent":"schedule","title":"RAG動画修正","date":"2025-04-18","content":"来週金曜締切","minutes":null}}
 "企画書を今日中に仕上げる" → {{"intent":"task","title":"企画書仕上げ","content":"","date":"","minutes":null}}
 "リクルートに返信する" → {{"intent":"task","title":"リクルート返信","content":"","date":"","minutes":null}}
@@ -1922,6 +2052,9 @@ def _summarize_via_gemini(instruction: str, data: str, prepend_clock: bool = Fal
 
 def _classify_intent_fallback(message: str) -> dict:
     """Gemini失敗時のキーワードベース分類"""
+    exm = _explicit_minutes_prefix(message)
+    if exm:
+        return exm
     h = _explicit_health_intent(message)
     if h:
         return h
@@ -1949,6 +2082,14 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "memo", "title": message, "content": "", "date": ""}
     elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
         return {"intent": "idea", "title": message, "content": "", "date": ""}
+    elif "議事録" in tc and ("保存" in tc or "記録" in tc):
+        return {
+            "intent": "minutes",
+            "title": _first_line_as_minutes_title(message),
+            "content": message,
+            "date": "",
+            "minutes": None,
+        }
     elif len(tc) < 80 and "予定" in tc and (
         "今日" in tc or "本日" in tc or "この後" in tc or "午後" in tc or "午前" in tc
     ):
@@ -2008,6 +2149,22 @@ def _explicit_health_intent(message: str) -> Optional[dict]:
     return None
 
 
+def _explicit_minutes_prefix(message: str) -> Optional[dict]:
+    """「議事録:」等で保存意図を明示したときは分類を固定"""
+    s = message.strip()
+    for prefix in ("議事録:", "議事録：", "[議事録]", "【議事録】"):
+        if s.startswith(prefix):
+            body = s[len(prefix):].strip()
+            return {
+                "intent": "minutes",
+                "title": "",
+                "content": body,
+                "date": "",
+                "minutes": None,
+            }
+    return None
+
+
 def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> dict:
     """Gemini APIでintentを分類。会話履歴があれば文脈も考慮する"""
     forced = _explicit_debug_intent(text)
@@ -2016,6 +2173,9 @@ def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> 
     forced_h = _explicit_health_intent(text)
     if forced_h:
         return forced_h
+    forced_m = _explicit_minutes_prefix(text)
+    if forced_m:
+        return forced_m
 
     today_str = _local_today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
@@ -2184,15 +2344,44 @@ def _fetch_brain() -> dict:
             logger.error("[brain] sleep logs: %s", e)
             return []
 
-    brain = {"memos": [], "tasks": [], "ideas": [], "schedule": [], "profile": [], "sleep": []}
+    def _q_minutes():
+        if not _minutes_db_configured():
+            return []
+        try:
+            data = _notion_post(f"/databases/{DB['Minutes'].strip()}/query", {
+                "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+                "page_size": 14,
+            })
+            out = []
+            for row in data.get("results", []):
+                tit = row["properties"]["名前"]["title"]
+                name = tit[0]["plain_text"] if tit else "(無題)"
+                when = (
+                    (row["properties"].get(NOTION_MINUTES_DATETIME_PROP, {}).get("date") or {}).get("start", "")
+                )
+                rt = row["properties"].get(NOTION_MINUTES_CONTENT_PROP, {}).get("rich_text", [])
+                body = ""
+                if rt:
+                    body = rt[0].get("plain_text", "")
+                snip = (body or "")[:900]
+                if len(body or "") > 900:
+                    snip += "…"
+                out.append({"title": name, "when": when, "content": snip})
+            return out
+        except Exception as e:
+            logger.error("[brain] minutes: %s", e)
+            return []
 
-    with ThreadPoolExecutor(max_workers=5) as pool:
+    brain = {"memos": [], "tasks": [], "ideas": [], "schedule": [], "profile": [], "sleep": [], "minutes": []}
+
+    with ThreadPoolExecutor(max_workers=6) as pool:
         futures = {
             pool.submit(_q_memos): "memos",
             pool.submit(_q_tasks): "tasks",
             pool.submit(_q_ideas): "ideas",
             pool.submit(_q_schedule): "schedule",
             pool.submit(_q_sleep_logs): "sleep",
+            pool.submit(_q_minutes): "minutes",
         }
         for fut in as_completed(futures):
             key = futures[fut]
@@ -2207,9 +2396,17 @@ def _fetch_brain() -> dict:
         brain["profile"] = []
 
     elapsed = int((time.time() - t0) * 1000)
-    logger.info("[brain] fetched in %dms (memos=%d tasks=%d ideas=%d sched=%d sleep=%d profile=%d)",
-                elapsed, len(brain["memos"]), len(brain["tasks"]),
-                len(brain["ideas"]), len(brain["schedule"]), len(brain["sleep"]), len(brain["profile"]))
+    logger.info(
+        "[brain] fetched in %dms (memos=%d tasks=%d ideas=%d sched=%d sleep=%d minutes=%d profile=%d)",
+        elapsed,
+        len(brain["memos"]),
+        len(brain["tasks"]),
+        len(brain["ideas"]),
+        len(brain["schedule"]),
+        len(brain["sleep"]),
+        len(brain.get("minutes") or []),
+        len(brain["profile"]),
+    )
     return brain
 
 
@@ -2237,6 +2434,7 @@ def think():
         f"## タスク（直近20件）\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
         f"## アイデア（直近10件）\n{json.dumps(brain['ideas'], ensure_ascii=False)}\n\n"
         f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}\n\n"
+        f"## 議事録（直近）\n{json.dumps(brain.get('minutes', []), ensure_ascii=False)}\n\n"
         f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
 
@@ -2272,6 +2470,9 @@ def think():
                     lines.append(f"・{t['title']}（{est}{t.get('status', '')}）")
         elif schedule:
             lines.append("【今すぐ】\n・" + schedule[0]["title"])
+        elif brain.get("minutes"):
+            m0 = brain["minutes"][0]
+            lines.append("【今すぐ】\n・" + (m0.get("title") or "議事録"))
         else:
             lines.append("まだNotionに何もない。まずはタスクか予定を登録しろ。")
         answer = "\n".join(lines)
@@ -2366,6 +2567,7 @@ def chat(req: ChatRequest):
         "memo", "idea", "task", "schedule", "profile", "done", "debug",
         "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         "today", "upcoming", "think", "answer", "unknown", "news_feedback",
+        "minutes",
     }
     if intent not in KNOWN_INTENTS:
         logger.warning("[chat] Unexpected intent '%s' — treating as answer. full=%s", intent, classified)
@@ -2378,7 +2580,7 @@ def chat(req: ChatRequest):
         if msg:
             _add_to_session(sid, "assistant", msg)
         skip_learn = (
-            "profile", "debug", "task", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
+            "profile", "debug", "task", "minutes", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         )
         if intent not in skip_learn and GEMINI_API_KEY:
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
@@ -2407,6 +2609,39 @@ def chat(req: ChatRequest):
             return _respond({"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True})
         except Exception:
             return _respond({"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False})
+
+    # --- minutes（議事録） ---
+    if intent == "minutes":
+        if not _minutes_db_configured():
+            return _respond({
+                "intent": "minutes",
+                "message": (
+                    "議事録用の Notion データベースがまだありません。"
+                    "リポジトリの create_minutes_database.py で作成し、Railway / .env に "
+                    "NOTION_DB_MINUTES=（DBのID）を設定してください。"
+                ),
+                "saved": False,
+            })
+        content = ((classified.get("content") or "").strip() or text)
+        title = ((classified.get("title") or "").strip())
+        if not title:
+            title = _first_line_as_minutes_title(content)
+        when_raw = ((classified.get("date") or "").strip())
+        try:
+            _save_minutes_to_notion(title, when_raw, content)
+            when_disp = _normalize_minutes_when(when_raw)
+            return _respond({
+                "intent": "minutes",
+                "message": f"議事録に保存しました: {title}\n日時: {when_disp}",
+                "saved": True,
+            })
+        except Exception as e:
+            logger.error("[chat minutes] %s", e)
+            return _respond({
+                "intent": "minutes",
+                "message": f"議事録の保存に失敗しました: {e}",
+                "saved": False,
+            })
 
     # --- task（Tasks DB・見積分。未入力ならセッションに保留して所要時間を聞く） ---
     if intent == "task":
@@ -2637,13 +2872,14 @@ def chat(req: ChatRequest):
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": [], "minutes": []}
 
     history_text = _build_history_text(sid)
 
     context = (
         f"## ボスのプロフィール・記憶\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
         f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
+        f"## 議事録（直近）\n{json.dumps(brain.get('minutes', []), ensure_ascii=False)}\n\n"
         f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}\n\n"
         f"## 今日の予定・タスク\n{json.dumps(brain.get('schedule', []), ensure_ascii=False)}\n"
         f"{json.dumps(brain.get('tasks', []), ensure_ascii=False)}"
@@ -2695,7 +2931,7 @@ def morning(session_id: Optional[str] = Query(None)):
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": [], "minutes": []}
 
     try:
         nd = news_digest.build_digest(brain=_brain_slice_for_news(brain), refresh=False)
@@ -2739,6 +2975,7 @@ def morning(session_id: Optional[str] = Query(None)):
         f"## 予定（30日分）\n{json.dumps(brain['schedule'], ensure_ascii=False)}\n\n"
         f"## タスク\n{json.dumps(brain['tasks'], ensure_ascii=False)}\n\n"
         f"## メモ\n{json.dumps(brain['memos'], ensure_ascii=False)}\n\n"
+        f"## 議事録（直近）\n{json.dumps(brain.get('minutes', []), ensure_ascii=False)}\n\n"
         f"## 睡眠ログ（直近）\n{json.dumps(brain.get('sleep', []), ensure_ascii=False)}"
     )
     if nd.get("enabled") and nd.get("items"):
@@ -2799,6 +3036,7 @@ def _brain_slice_for_opening(brain: dict) -> dict:
         "ideas": (brain.get("ideas") or [])[:4],
         "tasks": (brain.get("tasks") or [])[:10],
         "schedule": (brain.get("schedule") or [])[:10],
+        "minutes": (brain.get("minutes") or [])[:6],
         "sleep": (brain.get("sleep") or [])[:7],
     }
 
@@ -2832,7 +3070,7 @@ def opening_line(
     try:
         brain = _fetch_brain()
     except Exception:
-        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": []}
+        brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": [], "minutes": []}
 
     slim = _brain_slice_for_opening(brain)
     clock = _now_clock_block()
