@@ -107,10 +107,20 @@ function showWelcome() {
     <div class="welcome welcome--compact">
       <p class="welcome-lead"><strong>${g}、ボス。</strong> 何でも話しかけてください。</p>
       <details class="welcome-details">
-        <summary class="welcome-details-sum">使い方ヒント</summary>
+        <summary class="welcome-details-sum">使い方ヒント（タップで開く）</summary>
         <div class="welcome-details-body">
-          <p>下のボタンで<strong>メモ・予定・整理・片付け・バグ</strong>。長い連絡は貼り付けでタスク化できます。</p>
-          <p>右上の<strong>カレンダー</strong>で今後の予定を確認できます。</p>
+          <p class="welcome-details-lead">影が Notion の管理をサポートいたします。</p>
+          <ul class="welcome-hint-list">
+            <li>📝 メモ・💡 アイデア → 保存</li>
+            <li>📅 予定ボタン → 日時つきで保存</li>
+            <li>🧠 整理ボタン → タスクを整理</li>
+            <li>🐛 バグボタン → 不具合を Notion に記録</li>
+            <li>✅ 仕事タスク → Tasks に保存（所要時間が無いと聞き返します）</li>
+            <li>💤 「おやすみ」「おはよう」→ 睡眠ログ</li>
+            <li>🚪 「行ってきます」「ただいま」→ 健康メモ</li>
+            <li>📆 右上カレンダー → 今後の予定確認</li>
+          </ul>
+          <p class="welcome-details-foot">長い連絡は貼り付けでタスク化できます。社内短文・返信文案の相談も OK です。</p>
         </div>
       </details>
     </div>

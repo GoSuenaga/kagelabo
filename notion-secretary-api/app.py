@@ -3072,6 +3072,7 @@ def serve_frontend():
     if not raw_ver or not re.match(r"^[\w.\-]+$", raw_ver):
         raw_ver = "?"
     html = html.replace("{{KAGE_APP_VERSION}}", f"v{raw_ver}")
+    html = html.replace("{{KAGE_APP_ASSET_VER}}", raw_ver)
     return HTMLResponse(
         content=html,
         media_type="text/html; charset=utf-8",
