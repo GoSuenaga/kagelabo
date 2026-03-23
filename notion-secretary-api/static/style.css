@@ -390,6 +390,25 @@ body {
   line-height: 1.45;
 }
 
+.dv-mentor-tip {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--dim);
+  background: rgba(167, 139, 250, 0.07);
+  border-radius: 10px;
+  border-left: 3px solid rgba(167, 139, 250, 0.45);
+}
+.dv-mentor-label {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: 0.06em;
+}
+
 /* welcome（起動時は短く — 長いとスクロールで日時が見切れる） */
 .welcome { line-height: 1.5; }
 .welcome--compact .welcome-lead {

@@ -259,7 +259,7 @@ function renderDayView(data) {
     '<p class="day-view-intro">' +
     intro +
     '</p>' +
-    '<p class="day-view-note">「やらないこと」は<strong>このブラウザの会話セッション</strong>でのみ覚えます（例:「明日リクルートはやらない」）。頭から外してシングルタスクに集中するための欄です。</p>';
+    '<p class="day-view-note">影は<strong>秘書</strong>であり、ときに<strong>メンター・パートナー</strong>として伴走します。「やらないこと」は<strong>このブラウザのセッション</strong>内だけのメモです（例:「明日リクルートはやらない」）。頭から外してシングルタスクに寄せるための欄です。</p>';
 
   h += '<section class="dv-block"><h4 class="dv-h">タイムテーブル</h4>';
   if (!dv.schedules || !dv.schedules.length) {
@@ -327,6 +327,13 @@ function renderDayView(data) {
         '</li>';
     });
     h += '</ul></details>';
+  }
+
+  if (dv.mentor_tip) {
+    h +=
+      '<p class="dv-mentor-tip" role="note"><span class="dv-mentor-label">影より</span>' +
+      esc(dv.mentor_tip) +
+      '</p>';
   }
 
   h += '</div>';
