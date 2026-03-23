@@ -134,6 +134,7 @@ function showWelcome() {
             <li>📋 議事録 → Notion に蓄積。DBの列はサーバがNotionから自動認識（型さえ合っていれば列名は日本語でも可）。長文は要約＋原文保存可</li>
             <li>📅 予定ボタン → 日時つきで保存</li>
             <li>📷 会社カレンダーのスクショ＋「明日の予定はこれ」など → 会議枠をまとめて取込（(((AM2h))) / Focus time は除外）</li>
+            <li>📅 「明日の予定は何？」→ 時間×タイトルの一覧。「明日〇〇はやらない」→ その日は頭から外す（シングルタスク用・セッション内）</li>
             <li>🧠 整理ボタン → タスクを整理</li>
             <li>🐛 バグボタン → 不具合を Notion に記録</li>
             <li>✅ 仕事タスク → Tasks に保存（所要時間が無いと聞き返します）</li>
@@ -248,11 +249,100 @@ function renderScheduleDupConfirm(data) {
   addMsg('kage', html, 'warn');
 }
 
+function renderDayView(data) {
+  const dv = data.day_view;
+  if (!dv) return;
+  const intro = esc(data.message || '');
+  let h =
+    '<div class="day-view-card">' +
+    '<div class="day-view-badge">📅 1日の予定</div>' +
+    '<p class="day-view-intro">' +
+    intro +
+    '</p>' +
+    '<p class="day-view-note">「やらないこと」は<strong>このブラウザの会話セッション</strong>でのみ覚えます（例:「明日リクルートはやらない」）。頭から外してシングルタスクに集中するための欄です。</p>';
+
+  h += '<section class="dv-block"><h4 class="dv-h">タイムテーブル</h4>';
+  if (!dv.schedules || !dv.schedules.length) {
+    h += '<p class="dv-empty">この日のカレンダー予定はありません</p>';
+  } else {
+    h += '<div class="dv-grid">';
+    dv.schedules.forEach(s => {
+      h +=
+        '<div class="dv-row"><span class="dv-time">' +
+        esc(s.time || '—') +
+        '</span><span class="dv-body">' +
+        esc(s.title || '') +
+        (s.memo && s.memo.length > 2 && s.memo !== s.title
+          ? '<span class="dv-sub">' + esc(s.memo.slice(0, 80)) + (s.memo.length > 80 ? '…' : '') + '</span>'
+          : '') +
+        '</span></div>';
+    });
+    h += '</div>';
+  }
+  h += '</section>';
+
+  const labDo = (dv.labels && dv.labels.do) || 'やること';
+  const labNot = (dv.labels && dv.labels.not) || 'やらないこと';
+  h += '<section class="dv-block dv-do"><h4 class="dv-h">' + esc(labDo) + '</h4><p class="dv-lead">Notionタスク（この日が期限）で、まだ手を付ける想定のものです。</p>';
+  if (!dv.do_tasks || !dv.do_tasks.length) {
+    h += '<p class="dv-empty">なし</p>';
+  } else {
+    h += '<ul class="dv-list">';
+    dv.do_tasks.forEach(t => {
+      h +=
+        '<li><span class="dv-task-title">' +
+        esc(t.title || '') +
+        '</span>' +
+        (t.status ? '<span class="dv-status">' + esc(t.status) + '</span>' : '') +
+        '</li>';
+    });
+    h += '</ul>';
+  }
+  h += '</section>';
+
+  h +=
+    '<section class="dv-block dv-not"><h4 class="dv-h">' +
+    esc(labNot) +
+    '</h4><p class="dv-lead">この日は<strong>考えなくてよい</strong>タスクです。やることリストから意識的に外します。</p>';
+  if (!dv.not_do_tasks || !dv.not_do_tasks.length) {
+    h +=
+      '<p class="dv-empty">なし（「明日〇〇はやらない」と話しかけるとここに入ります）</p>';
+  } else {
+    h += '<ul class="dv-list dv-list-muted">';
+    dv.not_do_tasks.forEach(t => {
+      h += '<li><span class="dv-task-title">' + esc(t.title || '') + '</span></li>';
+    });
+    h += '</ul>';
+  }
+  h += '</section>';
+
+  if (dv.memo_hints && dv.memo_hints.length) {
+    h += '<details class="dv-more"><summary>直近メモの手がかり</summary><ul class="dv-hint-list">';
+    dv.memo_hints.forEach(m => {
+      h +=
+        '<li><strong>' +
+        esc(m.title || 'メモ') +
+        '</strong> — ' +
+        esc(m.snippet || '') +
+        '</li>';
+    });
+    h += '</ul></details>';
+  }
+
+  h += '</div>';
+  addMsg('kage', h, '');
+}
+
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
 
   if (data.need_schedule_confirmation && data.schedule_candidates && data.schedule_proposed) {
     renderScheduleDupConfirm(data);
+    return;
+  }
+
+  if (data.day_view) {
+    renderDayView(data);
     return;
   }
 

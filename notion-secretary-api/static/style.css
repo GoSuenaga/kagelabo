@@ -270,6 +270,126 @@ body {
 }
 .sched-dup-hint { font-size: 12px; color: var(--dim); margin: 8px 0 0; }
 
+/* 1日の予定ビュー（day_view） */
+.day-view-card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px 14px 14px;
+  background: linear-gradient(165deg, rgba(167,139,250,0.06), transparent 42%);
+  max-width: 100%;
+}
+.day-view-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+.day-view-intro {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.45;
+  margin: 0 0 8px;
+}
+.day-view-note {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.45;
+  margin: 0 0 14px;
+  padding: 8px 10px;
+  background: var(--surface2);
+  border-radius: 10px;
+  border-left: 3px solid var(--accent);
+}
+.dv-block { margin-top: 14px; }
+.dv-block:first-of-type { margin-top: 10px; }
+.dv-h {
+  font-size: 12px;
+  font-weight: 700;
+  margin: 0 0 4px;
+  color: var(--text);
+}
+.dv-lead {
+  font-size: 11px;
+  color: var(--dim);
+  margin: 0 0 8px;
+  line-height: 1.4;
+}
+.dv-empty {
+  font-size: 12px;
+  color: var(--muted);
+  font-style: italic;
+  margin: 0;
+}
+.dv-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.dv-row {
+  display: grid;
+  grid-template-columns: 5.2rem 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+.dv-row:last-child { border-bottom: none; }
+.dv-time {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--accent);
+  white-space: nowrap;
+}
+.dv-body {
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+.dv-sub {
+  display: block;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.dv-do .dv-h { color: #8b9dc3; }
+.dv-not .dv-h { color: var(--muted); }
+.dv-not {
+  opacity: 0.92;
+}
+.dv-list {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.dv-list-muted { opacity: 0.75; }
+.dv-list li { margin-bottom: 4px; }
+.dv-task-title { font-weight: 500; }
+.dv-status {
+  font-size: 10px;
+  color: var(--dim);
+  margin-left: 6px;
+}
+.dv-more {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--dim);
+}
+.dv-more summary { cursor: pointer; }
+.dv-hint-list {
+  margin: 8px 0 0;
+  padding-left: 1.1em;
+  font-size: 12px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
 /* welcome（起動時は短く — 長いとスクロールで日時が見切れる） */
 .welcome { line-height: 1.5; }
 .welcome--compact .welcome-lead {

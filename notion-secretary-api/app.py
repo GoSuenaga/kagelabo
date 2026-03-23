@@ -184,6 +184,7 @@ def _get_session(session_id: Optional[str]) -> tuple:
         "last_task_page_id": None,
         "last_task_title": None,
         "pending_news_feedback": None,
+        "day_deferrals": {},  # { "YYYY-MM-DD": [notion_page_id, ...] } その日は頭から外すタスク
     }
     return sid, msgs
 
@@ -2789,6 +2790,251 @@ def _fetch_upcoming(days: int = 7) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# 日次ビュー（予定表 + やること / やらないこと）
+# ---------------------------------------------------------------------------
+
+_WEEKDAY_JP = ("月", "火", "水", "木", "金", "土", "日")
+
+
+def _weekday_jp(d: date) -> str:
+    return _WEEKDAY_JP[d.weekday()]
+
+
+def _schedule_row_time_display(memo: str) -> str:
+    m = re.match(
+        r"^(\d{1,2}:\d{2}\s*[–ー〜\-～]\s*\d{1,2}:\d{2})",
+        (memo or "").strip().replace("：", ":"),
+    )
+    if m:
+        return re.sub(r"\s+", "", m.group(1))
+    return ""
+
+
+def _ensure_day_deferrals(sid: str) -> dict:
+    if sid not in CONVERSATIONS:
+        return {}
+    CONVERSATIONS[sid].setdefault("day_deferrals", {})
+    return CONVERSATIONS[sid]["day_deferrals"]
+
+
+def _deferrals_ids_for_day(sid: str, iso: str) -> set:
+    dd = _ensure_day_deferrals(sid)
+    return set(dd.get(iso) or [])
+
+
+def _deferrals_add(sid: str, iso: str, page_ids: list[str]) -> None:
+    dd = _ensure_day_deferrals(sid)
+    cur = list(dd.get(iso) or [])
+    for pid in page_ids:
+        if pid and pid not in cur:
+            cur.append(pid)
+    dd[iso] = cur
+
+
+def _deferrals_remove(sid: str, iso: str, page_ids: list[str]) -> None:
+    dd = _ensure_day_deferrals(sid)
+    rm = set(page_ids)
+    cur = [x for x in (dd.get(iso) or []) if x not in rm]
+    if cur:
+        dd[iso] = cur
+    else:
+        dd.pop(iso, None)
+
+
+def _day_view_parse_target_date(user_text: str, classified: dict) -> date:
+    """対象日（今日・明日・日付指定）"""
+    cd = (classified.get("date") or "").strip()
+    if len(cd) >= 10:
+        try:
+            return date.fromisoformat(cd[:10])
+        except ValueError:
+            pass
+    raw = user_text or ""
+    base = _local_today()
+    if "明後日" in raw:
+        return base + timedelta(days=2)
+    if "明日" in raw:
+        return base + timedelta(days=1)
+    if "今日" in raw or "本日" in raw:
+        return base
+    if "昨日" in raw:
+        return base - timedelta(days=1)
+    try:
+        return date.fromisoformat(_parse_calendar_target_date_iso(raw)[:10])
+    except ValueError:
+        return base
+
+
+def _fetch_schedule_entries_for_day(day_d: date) -> list[dict]:
+    rows: list[dict] = []
+    if not API_KEY or not (DB.get("Schedule") or "").strip():
+        return rows
+    try:
+        schedule_data = _notion_post(f"/databases/{DB['Schedule']}/query", {
+            "filter": _notion_date_on_local_calendar_day_filter("日付", day_d),
+            "sorts": [{"property": "日付", "direction": "ascending"}],
+            "page_size": 50,
+        })
+    except Exception as e:
+        logger.warning("[day_view] schedule query: %s", e)
+        return rows
+    for row in schedule_data.get("results", []):
+        title = row["properties"]["名前"]["title"]
+        name = title[0]["plain_text"] if title else "(無題)"
+        memo_rt = row["properties"].get("メモ", {}).get("rich_text", [])
+        memo = "".join((b.get("plain_text") or "") for b in memo_rt) if memo_rt else ""
+        td = _schedule_row_time_display(memo)
+        rows.append({"title": name, "memo": memo, "time": td or "—"})
+    rows.sort(key=lambda x: (x["time"] == "—", x["time"], x["title"]))
+    return rows
+
+
+def _fetch_task_rows_for_calendar_day(day_d: date) -> list[dict]:
+    out: list[dict] = []
+    if not API_KEY or not (DB.get("Tasks") or "").strip():
+        return out
+    try:
+        tasks_data = _notion_post(f"/databases/{DB['Tasks']}/query", {
+            "filter": _notion_date_on_local_calendar_day_filter("日付", day_d),
+            "sorts": [{"property": "日付", "direction": "ascending"}],
+            "page_size": 40,
+        })
+    except Exception as e:
+        logger.warning("[day_view] tasks query: %s", e)
+        return out
+    for row in tasks_data.get("results", []):
+        if row.get("archived"):
+            continue
+        summ = _task_row_to_summary(row, skip_done_status=True)
+        if not summ:
+            continue
+        out.append({
+            "page_id": row["id"],
+            "title": summ["title"],
+            "date": summ["date"],
+            "status": summ["status"],
+        })
+    return out
+
+
+def _tasks_search_title_contains(q: str, page_size: int = 10) -> list[dict]:
+    q = (q or "").strip()
+    if not q or not API_KEY:
+        return []
+    try:
+        data = _notion_post(f"/databases/{DB['Tasks']}/query", {
+            "filter": {"property": "名前", "title": {"contains": q[:50]}},
+            "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+            "page_size": page_size,
+        })
+    except Exception:
+        return []
+    out = []
+    for row in data.get("results", []):
+        if row.get("archived"):
+            continue
+        summ = _task_row_to_summary(row, skip_done_status=True)
+        if summ:
+            out.append({"page_id": row["id"], "title": summ["title"], "date": summ["date"], "status": summ["status"]})
+    return out
+
+
+def _compose_day_view(sid: str, target: date) -> dict:
+    iso = target.isoformat()
+    schedules = _fetch_schedule_entries_for_day(target)
+    tasks = _fetch_task_rows_for_calendar_day(target)
+    defer = _deferrals_ids_for_day(sid, iso)
+    do_tasks: list[dict] = []
+    not_tasks: list[dict] = []
+    for t in tasks:
+        item = {"page_id": t["page_id"], "title": t["title"], "status": t["status"]}
+        if t["page_id"] in defer:
+            not_tasks.append(item)
+        else:
+            do_tasks.append(item)
+    hints = []
+    try:
+        for m in _fetch_recent_memo_snippets(3):
+            sn = (m.get("content") or "")[:120]
+            if sn:
+                hints.append({"title": m.get("title") or "", "snippet": sn})
+    except Exception:
+        pass
+    base = _local_today()
+    phrase = _day_view_phrase(target, base)
+    return {
+        "target_date": iso,
+        "weekday_ja": _weekday_jp(target),
+        "schedules": schedules,
+        "do_tasks": do_tasks,
+        "not_do_tasks": not_tasks,
+        "memo_hints": hints,
+        "labels": {
+            "do": f"{phrase}やること",
+            "not": f"{phrase}やらないこと",
+        },
+    }
+
+
+def _day_view_intro_message(target: date, base: date) -> str:
+    wd = _weekday_jp(target)
+    label = f"{target.month}月{target.day}日（{wd}）"
+    if target == base:
+        return f"今日（{label}）の予定はこちらです。"
+    if target == base + timedelta(days=1):
+        return f"明日（{label}）の予定はこちらです。"
+    return f"{label}の予定はこちらです。"
+
+
+def _day_view_phrase(target: date, base: date) -> str:
+    if target == base:
+        return "今日"
+    if target == base + timedelta(days=1):
+        return "明日"
+    return f"{target.month}月{target.day}日"
+
+
+def _apply_day_defer_toggle(
+    sid: str,
+    user_text: str,
+    classified: dict,
+    *,
+    defer: bool,
+) -> dict:
+    """タスクをその日の「やらない」に入れる／外す"""
+    target = _day_view_parse_target_date(user_text, classified)
+    iso = target.isoformat()
+    needle = (classified.get("title") or "").strip() or (classified.get("content") or "").strip()
+    if not needle:
+        needle = re.sub(
+            r"(明日|今日|明後日|本日|の|は|を|に|こと|やらない|やる|リスト|から外|戻して|戻す|タスク|予定)+",
+            "",
+            user_text,
+            flags=re.UNICODE,
+        ).strip(" 　、。．.!！?？")[:80]
+
+    rows = _fetch_task_rows_for_calendar_day(target)
+    matched = [r for r in rows if needle and (needle in r["title"] or needle in _normalize_schedule_title_key(r["title"]))]
+    if not matched and needle:
+        wider = _tasks_search_title_contains(needle, 12)
+        matched = [r for r in wider if (r.get("date") or "")[:10] == iso]
+    if not matched:
+        return {
+            "ok": False,
+            "message": f"「{needle or '…'}」に一致するタスクが見つかりませんでした。タスク名の一部をはっきり書いてお試しください。",
+        }
+    pids = [m["page_id"] for m in matched]
+    titles = [m["title"] for m in matched]
+    if defer:
+        _deferrals_add(sid, iso, pids)
+        msg = f"{iso} は「やらないこと」に移しました（その日は頭から外して大丈夫です）: " + "、".join(titles[:5])
+    else:
+        _deferrals_remove(sid, iso, pids)
+        msg = f"{iso} の「やること」に戻しました: " + "、".join(titles[:5])
+    return {"ok": True, "message": msg, "target_date": iso}
+
+
+# ---------------------------------------------------------------------------
 # Intent分類（Gemini API）
 # ---------------------------------------------------------------------------
 
@@ -2803,8 +3049,11 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - idea: アイデア・企画の種・思いつき（すぐやる作業ではない）
 - schedule: 新しい予定を1件保存する場合。締切・日付・予定・〜までに
 - profile: 新しい情報を覚えさせる場合のみ。「覚えて」「覚えといて」＋新情報
-- today: 今日の予定・タスクを「聞いている」短い質問（例:「今日何する？」「今日の予定は？」「今日のタスクは？」「今日のこの後の予定」「午後何がある？」）
-- upcoming: 今後・来週・スケジュール確認を「聞いている」短い質問のみ
+- today: **今日**にフォーカスした「今日何する／今日のタスク」系の短い質問（予定**表**だけでなく動き方全般）。迷ったら day_view
+- day_view: **今日・明日・明後日・日付付き**で「予定／スケジュール／何があるか」を**一覧で見たい**短い質問。時間とタイトルで整理表示する（例:「明日の予定は何？」「今日の予定は？」「午後何がある？」「3月24日の予定」）
+- day_defer: あるタスクを**その日は一切やらない**（頭から外す）と決める。シングルタスク集中用（例:「明日リクルートはやらない」「今日企画書はやらないこと」）
+- day_undefer: 「やらない」指定をやめる（例:「リクルートは明日やることに戻して」）
+- upcoming: 今週・今後の**幅広い**予定確認（7日以上の塊）。「今週まとめて」など
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
 - think: 整理して・優先順位・何から・頭の中
@@ -2823,7 +3072,8 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - 例外: 文頭が「本日の議事録。」「今日の議事録。」または長文の**先頭〜数百文字以内**に「議事録」と会議・プレゼン・定例の記録がある → **必ず minutes**（idea・answerにしない）
 - 例外: Slack/Teams等のコピペっぽい長文（「名前/ID」「[12:34]」時刻タグ、@氏名/、URL、複数行の依頼文）→ task。
   title はボスがやるべきこと1行に要約、content に依頼者・期限・URL・要点、minutes は null（システムが別経路で即保存する場合あり）
-- today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
+- day_view と today: 「明日の予定は何？」「今日の予定は？」→ **day_view**（一覧表示）。「今日何する？」だけ → **today** でもよいが **day_view** でもよい（どちらも短い質問）
+- upcoming は「今週」「この先の予定まとめて」など広い範囲
 - taskとmemo: 買い物・備忘はmemo。仕事の実行項目はtask。迷ったら短文はmemo、明確な作業はtask
 - minutesとtask: 会議の記録・「以下議事録」・決定事項の**保存**はminutes。自分がやるべき1件の作業はtask
 - minutesとanswer: **保存・記録して**の意図で会議内容が中心ならminutes。「教えて」「どう思う」だけならanswer
@@ -2842,12 +3092,18 @@ Few-shot例:
 "Shadowっぽいアイデア" → {{"intent":"idea","title":"Shadow分身UI","content":"秘書感を出す","date":"","minutes":null}}
 "覚えて: パーソル研修は毎月第2火曜" → {{"intent":"profile","title":"パーソル研修","content":"毎月第2火曜","date":"","category":"プロジェクト"}}
 "俺の趣味は合気道" → {{"intent":"profile","title":"趣味","content":"合気道","date":"","category":"プライベート"}}
+"明日の予定は何？" → {{"intent":"day_view","title":"","content":"","date":""}}
+"明日のスケジュール教えて" → {{"intent":"day_view","title":"","content":"","date":""}}
+"今日の予定は？" → {{"intent":"day_view","title":"","content":"","date":""}}
+"午後何がある？" → {{"intent":"day_view","title":"","content":"","date":""}}
 "今日何する？" → {{"intent":"today","title":"","content":"","date":""}}
-"今日の予定は？" → {{"intent":"today","title":"","content":"","date":""}}
-"今日のこの後の予定は？" → {{"intent":"today","title":"","content":"","date":""}}
-"午後の予定教えて" → {{"intent":"today","title":"","content":"","date":""}}
+"今日のこの後の予定は？" → {{"intent":"day_view","title":"","content":"","date":""}}
+"午後の予定教えて" → {{"intent":"day_view","title":"","content":"","date":""}}
 "今日のタスクは？" → {{"intent":"today","title":"","content":"","date":""}}
 "今日やることリスト" → {{"intent":"today","title":"","content":"","date":""}}
+"明日リクルートはやらない" → {{"intent":"day_defer","title":"リクルート","content":"","date":""}}
+"企画書は今日やらないことにして" → {{"intent":"day_defer","title":"企画書","content":"","date":""}}
+"リクルートは明日やることに戻して" → {{"intent":"day_undefer","title":"リクルート","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
 "経歴を300文字でまとめて" → {{"intent":"answer","title":"","content":"","date":""}}
 "俺の好きな食べ物知ってる？" → {{"intent":"answer","title":"","content":"","date":""}}
@@ -2980,12 +3236,18 @@ def _classify_intent_fallback(message: str) -> dict:
         }
     elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
         return {"intent": "idea", "title": message, "content": "", "date": ""}
-    elif len(tc) < 80 and "予定" in tc and (
-        "今日" in tc or "本日" in tc or "この後" in tc or "午後" in tc or "午前" in tc
+    elif len(tc) < 120 and (
+        "予定" in tc or "スケジュール" in tc or "何がある" in tc or "この後" in tc
+    ) and (
+        "今日" in tc or "本日" in tc or "明日" in tc or "明後日" in tc or "午後" in tc or "午前" in tc
     ):
-        return {"intent": "today", "title": "", "content": "", "date": ""}
+        return {"intent": "day_view", "title": "", "content": "", "date": ""}
     elif len(tc) < 56 and ("今日" in tc or "本日" in tc) and "タスク" in tc:
         return {"intent": "today", "title": "", "content": "", "date": ""}
+    elif len(tc) < 100 and ("やらない" in tc or "頭から外" in tc) and "戻" not in tc:
+        return {"intent": "day_defer", "title": "", "content": "", "date": ""}
+    elif len(tc) < 100 and ("やることに戻" in tc or "やるに戻" in tc or "やらないのをやめる" in tc):
+        return {"intent": "day_undefer", "title": "", "content": "", "date": ""}
     elif any(k in text for k in ["予定", "締切", "まで", "schedule", "金曜", "月曜", "来週"]):
         return {"intent": "schedule", "title": message, "date": "", "content": ""}
     elif len(text) < 20 and any(k in text for k in ["今日", "today"]):
@@ -3508,7 +3770,8 @@ def chat(req: ChatRequest):
     KNOWN_INTENTS = {
         "memo", "idea", "task", "schedule", "profile", "done", "debug",
         "sleep_bedtime", "sleep_wake", "health_go", "health_back",
-        "today", "upcoming", "think", "answer", "unknown", "news_feedback",
+        "today", "day_view", "day_defer", "day_undefer",
+        "upcoming", "think", "answer", "unknown", "news_feedback",
         "minutes",
     }
     if intent not in KNOWN_INTENTS:
@@ -3523,6 +3786,7 @@ def chat(req: ChatRequest):
             _add_to_session(sid, "assistant", msg)
         skip_learn = (
             "profile", "debug", "task", "minutes", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
+            "day_view", "day_defer", "day_undefer", "today",
         )
         if (
             intent not in skip_learn
@@ -3776,49 +4040,66 @@ def chat(req: ChatRequest):
         except Exception as e:
             return _respond({"intent": "debug", "message": f"バグ報告の処理中にエラーが発生しました: {str(e)}", "saved": False})
 
-    # --- today（Notion + 会話内の予定共有を統合） ---
+    # --- day_view（今日・明日など1日の予定表 + やること／やらないこと） ---
+    if intent == "day_view":
+        try:
+            target = _day_view_parse_target_date(text, classified)
+            dv = _compose_day_view(sid, target)
+            intro = _day_view_intro_message(target, _local_today())
+            return _respond({
+                "intent": "day_view",
+                "message": intro,
+                "saved": False,
+                "day_view": dv,
+            })
+        except Exception as e:
+            logger.error("[day_view] failed: %s", e)
+            return _respond({"intent": "day_view", "message": "予定一覧の取得に失敗しました。", "saved": False})
+
+    if intent == "day_defer":
+        r = _apply_day_defer_toggle(sid, text, classified, defer=True)
+        target = _day_view_parse_target_date(text, classified)
+        dv = _compose_day_view(sid, target)
+        return _respond({
+            "intent": "day_view",
+            "message": r["message"],
+            "saved": False,
+            "day_view": dv,
+        })
+
+    if intent == "day_undefer":
+        r = _apply_day_defer_toggle(sid, text, classified, defer=False)
+        target = _day_view_parse_target_date(text, classified)
+        dv = _compose_day_view(sid, target)
+        return _respond({
+            "intent": "day_view",
+            "message": r["message"],
+            "saved": False,
+            "day_view": dv,
+        })
+
+    # --- today → 今日の day_view（一覧表示で把握しやすく） ---
     if intent == "today":
         try:
-            data = _fetch_today()
-            try:
-                recent_memos = _fetch_recent_memo_snippets(10)
-            except Exception as e:
-                logger.warning("[today] recent memos skipped: %s", e)
-                recent_memos = []
-            chat_sched = _collect_schedule_related_chat(sid)
-            notion_empty = not data.get("schedules") and not data.get("tasks")
-            if notion_empty and not chat_sched and not recent_memos:
-                return _respond({"intent": "today", "message": "ボス、今日の予定・タスクはまだ登録がありません。", "saved": False})
-            bundle = {
-                "today_date": data["date"],
-                "notion_schedules": data.get("schedules", []),
-                "notion_tasks": data.get("tasks", []),
-                "tasks_field_guide": data.get("tasks_note"),
-                "from_conversation": chat_sched or None,
-                "recent_memos": recent_memos,
-            }
-            instr = (
-                "ボスから「今日の予定・タスク」の問い合わせです。次のJSONを読んで答えてください。\n"
-                f"- today_date: カレンダー上の本日（{data['date']}）\n"
-                "- notion_schedules: 本日の予定（カレンダー日付=今日）\n"
-                "- notion_tasks: 着手・期限が近いタスク一覧。各要素の date は多くが「期限日」で、"
-                "today_date と違っても正常（例: 明後日締切のタスクは今日動く）。"
-                "tasks_field_guide の説明に従い、本日期限・近日期限を区別して案内すること。\n"
-                "- from_conversation: このチャットでボスが共有した予定・作業メモ（Notion未登録の可能性あり）。"
-                "時刻・件名・最優先の作業名を抜けなく読み上げること。これが唯一の情報源のときもある。\n"
-                "- recent_memos: 直近のメモDB。タスク欄が空でも、ここに今日の作業の手がかりがあれば必ず触れること。"
-                "（メモの内容を「公式スケジュール」と混同せず、メモとして一言出典を添える）\n"
-                "- 会話内の「今日」は発言当日を指すことがある。today_date とズレる内容は「先日チャットで共有いただいた予定では…」のように切り分ける。\n"
-                "- Notionと会話の両方があるときは重複をまとめ、簡潔に列挙する。"
-            )
-            answer = _summarize_via_gemini(
-                instr,
-                json.dumps(bundle, ensure_ascii=False),
-                prepend_clock=True,
-            )
-            return _respond({"intent": "today", "message": answer, "saved": False})
-        except Exception:
-            return _respond({"intent": "today", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False})
+            target = _local_today()
+            dv = _compose_day_view(sid, target)
+            intro = _day_view_intro_message(target, _local_today())
+            if not dv["schedules"] and not dv["do_tasks"] and not dv["not_do_tasks"] and not dv.get("memo_hints"):
+                return _respond({
+                    "intent": "day_view",
+                    "message": intro + "まだ今日の予定・タスクがNotionにありません。📅から追加できます。",
+                    "saved": False,
+                    "day_view": dv,
+                })
+            return _respond({
+                "intent": "day_view",
+                "message": intro,
+                "saved": False,
+                "day_view": dv,
+            })
+        except Exception as e:
+            logger.error("[today/day_view] failed: %s", e)
+            return _respond({"intent": "day_view", "message": "ボス、Notionからデータを取得できませんでした。", "saved": False})
 
     # --- upcoming ---
     if intent == "upcoming":
