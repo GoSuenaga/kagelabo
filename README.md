@@ -4,6 +4,53 @@
 
 プロジェクトの呼び名は **kage-lab（影秘書ラボ）**。GitHub のリポジトリ名は任意（例: **`kagelabo`**）。ローカルフォルダ名と一致させる必要はない。
 
+## 初回セットアップ（ステップ順）
+
+**前提（リポジトリルートで確認済みでもよい）:** `main` にコミットがあり、作業ツリーがクリーンであること。`git status` で `nothing to commit` になっていれば OK。
+
+### ステップ 1 — GitHub で空リポジトリを作る
+
+1. ブラウザで [github.com/new](https://github.com/new) を開く（個人アカウントでログイン済み）。
+2. **Repository name** に `kagelabo`（または好きな名前）。
+3. **Public / Private** を選ぶ。
+4. **Add a README / .gitignore / license は付けない**（ローカルに既に履歴があるため）。
+5. **Create repository** を押す。
+6. 表示された画面で緑の **Code** → **HTTPS** を選び、`https://github.com/<ユーザー名>/kagelabo.git` をコピー（この URL をステップ 2 で使う）。
+
+### ステップ 2 — ローカルに `origin` を付けて初回 push
+
+ターミナル（パスは環境に合わせる）:
+
+```bash
+cd /Users/a13371/Dropbox/CA_Works/20260316_Claude_code
+git remote add origin https://github.com/<ユーザー名>/kagelabo.git
+git push -u origin main
+```
+
+- すでに誤った `origin` がある場合: `git remote remove origin` してからやり直す。
+- SSH 利用時は Code ボタンの SSH URL を `origin` に使う。
+
+### ステップ 3 — Railway をモノレポに合わせる
+
+1. [Railway](https://railway.app) で **KAGE 用サービス**（例: `notion-secretary-api`）を開く。
+2. **Settings** → **Source**（または接続済みリポジトリ表示）で、**いままだ `notion-secretary-api` など旧リポジトリだけ**を指しているなら、**Disconnect** してから **GitHub から `kagelabo` を再接続**する（または新規デプロイで `kagelabo` を選ぶ）。
+3. 同じ **Settings** 内の **Root Directory** を **`apps/kage`** に変更して保存（モノレポのルートではなく、このサブフォルダが KAGE の `Procfile` / `app.py` がある場所）。
+4. **Variables**（環境変数）は以前の KAGE 用のまま残っていれば基本的にそのままでよい。
+5. **Deployments** から **Redeploy**、または `main` へ push して自動デプロイを待つ。
+
+**注意:** GitHub 側がまだ旧リポジトリのままのときに Root Directory だけ `apps/kage` にすると、そのリポにフォルダが無くて失敗する。**先にステップ 1〜2 で `kagelabo` にモノレポが載っている状態**にしてからステップ 3 を行う。
+
+### ステップ 4 — 動作確認
+
+- デプロイログが成功しているか確認。
+- これまで通りの本番 URL で **ヘルス** や **`/app`** にアクセスして動作を確認。
+
+### ステップ 5（任意）
+
+- Railway の**サービス表示名**を `notion-secretary-api` から `kage` などに変えてもよい（URL はプロジェクト設定による。名前は見た目用）。
+
+---
+
 ## レイアウト
 
 | パス | 内容 |
@@ -54,13 +101,4 @@ streamlit run vlog_app.py
 ## ドキュメント
 
 - 人間向けの作業メモ: `CLAUDE.md`
-
-## 初回 GitHub（個人アカウント・空リポ例: `kagelabo`）
-
-```bash
-cd /path/to/this/repo   # いまの作業ディレクトリ
-git remote add origin https://github.com/<あなたのユーザー名>/kagelabo.git
-git push -u origin main
-```
-
-SSH なら `git@github.com:<ユーザー名>/kagelabo.git`。URL はリポジトリページの緑の **Code** ボタンからコピーする（下記参照）。
+- **GitHub → Railway の初回手順:** 上記「初回セットアップ（ステップ順）」
