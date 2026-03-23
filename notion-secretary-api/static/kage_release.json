@@ -1,5 +1,5 @@
 {
-  "app_version": "0.149",
+  "app_version": "0.150",
   "release_date": "2026-03-23",
-  "summary": "議事録・Notion rich_text を UTF-16 単位で分割（2000文字超エラー対策）"
+  "summary": "本日の議事録→minutes固定、memo/idea等もrich_text分割"
 }

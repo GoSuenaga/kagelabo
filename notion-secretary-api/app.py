@@ -1838,9 +1838,9 @@ def set_model(model_id: str):
 @app.post("/schedule")
 def add_schedule(req: ScheduleRequest):
     """予定をScheduleDBに追加"""
-    props = {**_title_prop(req.title), **_date_prop("日付", req.date)}
+    props = {**_title_prop(req.title[:200]), **_date_prop("日付", req.date)}
     if req.memo:
-        props.update(_rich_text_prop("メモ", req.memo))
+        props.update(_rich_text_prop_chunked("メモ", req.memo))
     _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
     return {"message": f"予定を追加しました: {req.title} ({req.date})"}
 
@@ -1848,9 +1848,9 @@ def add_schedule(req: ScheduleRequest):
 @app.post("/idea")
 def add_idea(req: IdeaRequest):
     """アイデアをIdeasDBに追加"""
-    props = {**_title_prop(req.title)}
+    props = {**_title_prop(req.title[:200])}
     if req.content:
-        props.update(_rich_text_prop("内容", req.content))
+        props.update(_rich_text_prop_chunked("内容", req.content))
     _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
     return {"message": f"アイデアを追加しました: {req.title}"}
 
@@ -1858,9 +1858,9 @@ def add_idea(req: IdeaRequest):
 @app.post("/memo")
 def add_memo(req: MemoRequest):
     """メモをMemosDBに追加"""
-    props = {**_title_prop(req.title)}
+    props = {**_title_prop(req.title[:200])}
     if req.content:
-        props.update(_rich_text_prop("内容", req.content))
+        props.update(_rich_text_prop_chunked("内容", req.content))
     _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
     return {"message": f"メモを追加しました: {req.title}"}
 
@@ -2111,6 +2111,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - 「もうやった」「終わった」「いらない」「消して」＋対象アイテム → done（titleに対象を入れる）
 - 「終わったよ」「完了した」だけのとき → done。会話履歴に直前の「タスクを登録」があれば title にはそのタスク名の短いキーワードを入れる（空にしない）
 - ユーザーが情報を「伝えている」長文（予定の共有、状況報告など）→ answer（todayではない！）
+- 例外: 文頭が「本日の議事録。」「今日の議事録。」または長文の**先頭〜数百文字以内**に「議事録」と会議・プレゼン・定例の記録がある → **必ず minutes**（idea・answerにしない）
 - 例外: Slack/Teams等のコピペっぽい長文（「名前/ID」「[12:34]」時刻タグ、@氏名/、URL、複数行の依頼文）→ task。
   title はボスがやるべきこと1行に要約、content に依頼者・期限・URL・要点、minutes は null（システムが別経路で即保存する場合あり）
 - today/upcomingは「今日は？」「今週の予定は？」のような短い質問のみ
@@ -2124,6 +2125,7 @@ Few-shot例:
 "台所の洗剤買う" → {{"intent":"memo","title":"台所の洗剤を買う","content":"","date":"","minutes":null}}
 "CA定例の議事録を保存。3/20 15時〜。決定: 資料は前日まで" → {{"intent":"minutes","title":"CA定例","content":"3/20 15時〜。決定: 資料は前日まで","date":"2026-03-20","minutes":null}}
 "以下議事録です。\\n1. アジェンダA …" → {{"intent":"minutes","title":"会議","content":"1. アジェンダA …","date":"","minutes":null}}
+"本日の議事録。ビジョンについて…（数千字の会議メモ）" → {{"intent":"minutes","title":"","content":"（全文）","date":"","minutes":null}}
 "RAGの動画修正、来週金曜締切" → {{"intent":"schedule","title":"RAG動画修正","date":"2025-04-18","content":"来週金曜締切","minutes":null}}
 "企画書を今日中に仕上げる" → {{"intent":"task","title":"企画書仕上げ","content":"","date":"","minutes":null}}
 "リクルートに返信する" → {{"intent":"task","title":"リクルート返信","content":"","date":"","minutes":null}}
@@ -2192,8 +2194,8 @@ def _auto_learn_bg(text: str):
         for fact in facts:
             if not isinstance(fact, dict) or not fact.get("title"):
                 continue
-            props = {**_title_prop(fact["title"])}
-            props.update(_rich_text_prop("内容", fact.get("content", "")))
+            props = {**_title_prop((fact["title"] or "")[:200])}
+            props.update(_rich_text_prop_chunked("内容", fact.get("content", "")))
             props["カテゴリ"] = {"select": {"name": fact.get("category", "その他")}}
             _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
             _invalidate_profile_cache()
@@ -2251,8 +2253,14 @@ def _classify_intent_fallback(message: str) -> dict:
         return {"intent": "task", "title": message.strip()[:200], "content": "", "date": "", "minutes": None}
     elif any(k in text for k in ["買", "メモ", "todo", "to do"]):
         return {"intent": "memo", "title": message, "content": "", "date": ""}
-    elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
-        return {"intent": "idea", "title": message, "content": "", "date": ""}
+    elif "議事録" in tc[:500] and len(tc) >= 400:
+        return {
+            "intent": "minutes",
+            "title": _first_line_as_minutes_title(message),
+            "content": message,
+            "date": "",
+            "minutes": None,
+        }
     elif "議事録" in tc and ("保存" in tc or "記録" in tc):
         return {
             "intent": "minutes",
@@ -2261,6 +2269,8 @@ def _classify_intent_fallback(message: str) -> dict:
             "date": "",
             "minutes": None,
         }
+    elif any(k in text for k in ["アイデア", "idea", "企画", "思いついた"]):
+        return {"intent": "idea", "title": message, "content": "", "date": ""}
     elif len(tc) < 80 and "予定" in tc and (
         "今日" in tc or "本日" in tc or "この後" in tc or "午後" in tc or "午前" in tc
     ):
@@ -2321,7 +2331,7 @@ def _explicit_health_intent(message: str) -> Optional[dict]:
 
 
 def _explicit_minutes_prefix(message: str) -> Optional[dict]:
-    """「議事録:」等で保存意図を明示したときは分類を固定"""
+    """「議事録:」「本日の議事録。」等は Gemini に渡さず議事録として保存"""
     s = message.strip()
     for prefix in ("議事録:", "議事録：", "[議事録]", "【議事録】"):
         if s.startswith(prefix):
@@ -2329,10 +2339,27 @@ def _explicit_minutes_prefix(message: str) -> Optional[dict]:
             return {
                 "intent": "minutes",
                 "title": "",
-                "content": body,
+                "content": body or s,
                 "date": "",
                 "minutes": None,
             }
+    if re.match(r"^(本日|今日)の議事録[。．.:\s　]", s):
+        return {
+            "intent": "minutes",
+            "title": "",
+            "content": s,
+            "date": "",
+            "minutes": None,
+        }
+    head = s[:500]
+    if len(s) >= 500 and "議事録" in head:
+        return {
+            "intent": "minutes",
+            "title": "",
+            "content": s,
+            "date": "",
+            "minutes": None,
+        }
     return None
 
 
@@ -2759,10 +2786,10 @@ def chat(req: ChatRequest):
 
     # --- memo ---
     if intent == "memo":
-        title = classified.get("title") or text[:20]
+        title = ((classified.get("title") or text[:20]).strip() or "メモ")[:200]
         content = classified.get("content") or text
         props = {**_title_prop(title)}
-        props.update(_rich_text_prop("内容", content))
+        props.update(_rich_text_prop_chunked("内容", content))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
             return _respond({"intent": "memo", "message": f"メモを保存しました: {title}", "saved": True})
@@ -2771,10 +2798,10 @@ def chat(req: ChatRequest):
 
     # --- idea ---
     if intent == "idea":
-        title = classified.get("title") or text[:20]
+        title = ((classified.get("title") or text[:20]).strip() or "アイデア")[:200]
         content = classified.get("content") or text
         props = {**_title_prop(title)}
-        props.update(_rich_text_prop("内容", content))
+        props.update(_rich_text_prop_chunked("内容", content))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
             return _respond({"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True})
@@ -2858,12 +2885,12 @@ def chat(req: ChatRequest):
 
     # --- schedule ---
     if intent == "schedule":
-        title = classified.get("title") or text[:20]
+        title = ((classified.get("title") or text[:20]).strip() or "予定")[:200]
         d = classified.get("date") or _local_today().isoformat()
         memo = classified.get("memo") or classified.get("content") or ""
         props = {**_title_prop(title), **_date_prop("日付", d)}
         if memo:
-            props.update(_rich_text_prop("メモ", memo))
+            props.update(_rich_text_prop_chunked("メモ", memo))
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
             return _respond({"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True})
@@ -2872,11 +2899,11 @@ def chat(req: ChatRequest):
 
     # --- profile ---
     if intent == "profile":
-        title = classified.get("title") or text[:20]
+        title = ((classified.get("title") or text[:20]).strip() or "プロフィール")[:200]
         content = classified.get("content") or text
         category = classified.get("category") or "その他"
         props = {**_title_prop(title)}
-        props.update(_rich_text_prop("内容", content))
+        props.update(_rich_text_prop_chunked("内容", content))
         props["カテゴリ"] = {"select": {"name": category}}
         try:
             _notion_post("/pages", {"parent": {"database_id": DB["Profile"]}, "properties": props})
