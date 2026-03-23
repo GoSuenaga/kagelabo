@@ -1,5 +1,5 @@
 {
-  "app_version": "0.163",
+  "app_version": "0.164",
   "release_date": "2026-03-23",
-  "summary": "固有用語辞書 kage_glossary.json（表記統一・1色ハイライト・予定/タスク保存）"
+  "summary": "UI: メモ・アイデア・予定のフッターショートカットと意図不明時の選択肢を非表示"
 }
