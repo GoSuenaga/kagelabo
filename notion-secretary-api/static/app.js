@@ -597,7 +597,7 @@ async function saveMinutes() {
     addMsg(
       'kage',
       `ボス、議事録の保存に失敗しました。<br><small style="opacity:.9">${detail}</small>` +
-        `<br><small style="opacity:.75">※ <code>expected to be title / rich_text</code> エラーは Notion の列の型と不一致です。Railway で <code>NOTION_MINUTES_TITLE_PROP</code>（title型の列）と <code>NOTION_MINUTES_CONTENT_PROP</code>（rich_text型の列）をDBに合わせてください。<code>minutes_db_configured</code> が false のときは <code>NOTION_DB_MINUTES</code> を設定してください。</small>`,
+        `<br><small style="opacity:.75">※ Notion の議事録DBは <strong>名前＝タイトル型・内容＝テキスト型</strong>（<code>create_minutes_database.py</code> と同じ）。型エラーなら Notion 側を直すのが一番すっきりします。<code>minutes_db_configured</code> が false のときは <code>NOTION_DB_MINUTES</code> を設定してください。</small>`,
       'error'
     );
   } finally { minutesSave.disabled = false; }

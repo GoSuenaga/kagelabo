@@ -60,8 +60,9 @@ DB = {
     "Minutes":  os.environ.get("NOTION_DB_MINUTES", "").strip(),
 }
 
-# 議事録 DB のプロパティ名（Notion スキーマと一致させる）
-# タイトル型の列（create_minutes_database.py 既定は「名前」）。DB で「内容」がタイトル型なら NOTION_MINUTES_TITLE_PROP=内容 など
+# 議事録 DB（標準スキーマは create_minutes_database.py と同一）
+#   名前 = title 型 / 日時 = date / 内容 = rich_text / 任意 原文 = rich_text
+# Notion 側をこの型に揃えるのが推奨。列名だけ違うときだけ下の *_PROP を設定する。
 NOTION_MINUTES_TITLE_PROP = os.environ.get("NOTION_MINUTES_TITLE_PROP", "名前").strip() or "名前"
 NOTION_MINUTES_DATETIME_PROP = os.environ.get("NOTION_MINUTES_DATETIME_PROP", "日時").strip() or "日時"
 NOTION_MINUTES_CONTENT_PROP = os.environ.get("NOTION_MINUTES_CONTENT_PROP", "内容").strip() or "内容"

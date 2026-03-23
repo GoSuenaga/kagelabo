@@ -1,5 +1,5 @@
 {
-  "app_version": "0.152",
+  "app_version": "0.153",
   "release_date": "2026-03-23",
-  "summary": "NOTION_MINUTES_TITLE_PROP（議事録DBのタイトル列名）"
+  "summary": "議事録スキーマのドキュメント整備・UIエラーヒント"
 }
