@@ -362,6 +362,141 @@ _profile_path = Path(__file__).parent / "boss_profile.md"
 BOSS_PROFILE = _profile_path.read_text(encoding="utf-8") if _profile_path.exists() else "（プロフィール未設定）"
 logger.info("[init] boss_profile.md loaded: %d chars", len(BOSS_PROFILE))
 
+# ---------------------------------------------------------------------------
+# 固有用語辞書（kage_glossary.json — 表記統一・UIハイライト用語リスト）
+# ---------------------------------------------------------------------------
+_GLOSSARY_PATH = Path(__file__).parent / "kage_glossary.json"
+
+
+def _load_kage_glossary_bundle() -> dict:
+    """別名→正書法の置換列（先頭一致・長い別名優先）とプロンプト断片を生成"""
+    empty: dict = {
+        "version": 0,
+        "pairs": [],
+        "highlight_terms": [],
+        "prompt_block": "",
+        "classify_addon": "",
+    }
+    try:
+        raw = _GLOSSARY_PATH.read_text(encoding="utf-8")
+        data = json.loads(raw)
+    except FileNotFoundError:
+        logger.warning("[glossary] kage_glossary.json not found; using empty dictionary")
+        return empty
+    except Exception as e:
+        logger.error("[glossary] load failed: %s", e)
+        return empty
+
+    entries = data.get("entries")
+    if not isinstance(entries, list):
+        return {**empty, "version": int(data.get("version") or 0)}
+
+    repl: list[tuple[str, str]] = []
+    seen_needle: set[str] = set()
+    canon_set: set[str] = set()
+
+    for ent in entries:
+        if not isinstance(ent, dict):
+            continue
+        can = (ent.get("canonical") or "").strip()
+        if not can:
+            continue
+        canon_set.add(can)
+        al = ent.get("aliases")
+        if not isinstance(al, list):
+            al = []
+        variants = [can] + [str(a).strip() for a in al if str(a).strip()]
+        for needle in variants:
+            if needle in seen_needle:
+                continue
+            seen_needle.add(needle)
+            repl.append((needle, can))
+
+    repl.sort(key=lambda x: -len(x[0]))
+    highlight_terms = sorted(canon_set, key=lambda x: -len(x))
+
+    lines_tb = [
+        "## 固有用語の表記（予定・タスク・返答で次を正とする）",
+        "",
+        "- **クライアント名とサービス名を混同しないこと。**"
+        "（例: **Recruit**＝企業。**リクルートエージェント**＝別の固有名でそのまま）",
+        "",
+    ]
+    for ent in entries:
+        if not isinstance(ent, dict):
+            continue
+        can = (ent.get("canonical") or "").strip()
+        if not can:
+            continue
+        al = ent.get("aliases")
+        if not isinstance(al, list):
+            al = []
+        als = [str(a).strip() for a in al if str(a).strip()]
+        note = (ent.get("note") or "").strip()
+        sub = f"- **{can}**"
+        if als:
+            sub += " ← " + "、".join(als)
+        if note:
+            sub += f"（{note}）"
+        lines_tb.append(sub)
+    lines_tb.extend(
+        [
+            "",
+            "新規で予定・タスクのタイトルや本文に書くときも上記に合わせる。"
+            "会話での説明も、可能なら統一表記を使う。",
+        ]
+    )
+    prompt_block = "\n".join(lines_tb)
+    classify_addon = (
+        "固有用語（JSON の title / content でも従うこと）:\n"
+        + prompt_block
+        + "\n"
+        "例: ユーザーが「バンタン」と言っていても title では VANTAN。"
+        "「リクルート」単独は Recruit。「リクルートエージェント」は分解・略さずそのまま。\n"
+    )
+
+    return {
+        "version": int(data.get("version") or 1),
+        "pairs": repl,
+        "highlight_terms": highlight_terms,
+        "prompt_block": prompt_block,
+        "classify_addon": classify_addon,
+    }
+
+
+_KAGE_GLOSSARY = _load_kage_glossary_bundle()
+
+
+def apply_kage_glossary(text: str) -> str:
+    """表示・保存前に固有用語を正書法へ（最長一致・辞書順で安定）"""
+    if not text or not _KAGE_GLOSSARY.get("pairs"):
+        return text
+    pairs: list[tuple[str, str]] = _KAGE_GLOSSARY["pairs"]
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    while i < n:
+        matched_len = 0
+        replacement = ""
+        for needle, rep in pairs:
+            ln = len(needle)
+            if ln == 0:
+                continue
+            if text.startswith(needle, i):
+                matched_len = ln
+                replacement = rep
+                break
+        if matched_len:
+            out.append(replacement)
+            i += matched_len
+        else:
+            out.append(text[i])
+            i += 1
+    return "".join(out)
+
+
+KAGE_GLOSSARY_PROMPT = (_KAGE_GLOSSARY.get("prompt_block") or "").strip()
+
 # 日時回答の捏造防止用（環境変数 KAGE_TZ で変更可、既定 Asia/Tokyo）
 KAGE_TZ = os.environ.get("KAGE_TZ", "Asia/Tokyo")
 _WD_JA = ("月", "火", "水", "木", "金", "土", "日")
@@ -461,6 +596,8 @@ SECRETARY_SYSTEM_PROMPT = f"""\
 
 {KAGE_MENTOR_PARTNER_LAYER}
 
+{KAGE_GLOSSARY_PROMPT}
+
 絶対ルール：
 - 「〜しろ」「〜やれ」「〜だぞ」等の命令口調は厳禁
 - 「ボス」の呼びかけは毎回ではなく、大事な報告・注意喚起・朝の挨拶など要所でだけ使う。普段は省略してOK
@@ -504,6 +641,8 @@ THINK_SYSTEM_PROMPT = f"""\
 
 {KAGE_MENTOR_PARTNER_LAYER}
 
+{KAGE_GLOSSARY_PROMPT}
+
 絶対ルール：
 - 「〜しろ」「〜やれ」「〜だぞ」等の命令口調は厳禁
 - ボスを敬う丁寧な秘書として振る舞う
@@ -543,6 +682,8 @@ MORNING_SYSTEM_PROMPT = f"""\
 
 {KAGE_MENTOR_PARTNER_LAYER}
 
+{KAGE_GLOSSARY_PROMPT}
+
 絶対ルール：
 - 「〜しろ」「〜やれ」「〜だぞ」等の命令口調は厳禁
 - ボスを敬う丁寧な秘書として振る舞う
@@ -578,6 +719,8 @@ OPENING_LINE_SYSTEM_PROMPT = f"""\
 {BOSS_PROFILE}
 
 {KAGE_MENTOR_PARTNER_LAYER}
+
+{KAGE_GLOSSARY_PROMPT}
 
 役割: ウェルカム文言の**直後**に続く「ひと言」を、**1ブロックの本文だけ**で書く（見出し・箇条書き・改行は禁止。文と文の間は全角スペース1つまで可）。
 
@@ -831,9 +974,9 @@ def _schedule_handle_request(
     予定1件の解決。重複候補ありかつ未解決なら need_schedule_confirmation を立てる。
     bulk_skip_duplicate_prompt: 画像一括取込時など、確認ダイアログを出さず新規作成する。
     """
-    title = (title or "").strip()[:200]
+    title = apply_kage_glossary((title or "").strip())[:200]
     date_s = (date_s or "").strip()[:32]
-    memo = (memo or "").strip()
+    memo = apply_kage_glossary((memo or "").strip())
     if not title or not date_s:
         return {
             "saved": False,
@@ -1127,7 +1270,7 @@ def _import_schedules_from_calendar_screenshot(
         )
         if r.get("saved"):
             ok_n += 1
-            lines.append(f"・{ev['start']}–{ev['end']} {ev['title']}")
+            lines.append(f"・{ev['start']}–{ev['end']} {apply_kage_glossary(ev['title'])}")
         else:
             err_n += 1
     msg = (
@@ -2367,10 +2510,12 @@ def kage_meta():
             "notion_export": "/meta/notion-export",
             "static_release": "/static/kage_release.json",
             "kage_release_api": "/api/kage-release.json",
+            "kage_glossary_api": "/api/kage-glossary.json",
             "admin_notion_sync": "/admin/kage-notion-sync",
             "kage_static_doc": "/docs/kage-static",
         },
         "release_file": "notion-secretary-api/static/kage_release.json",
+        "glossary_file": "notion-secretary-api/kage_glossary.json",
     }
 
 
@@ -2783,6 +2928,11 @@ def _fetch_today() -> dict:
             " 本日が期限でステータスが完了のタスクも一覧に含まれることがある（朝のブリーフと齟齬を防ぐため）。"
         ),
     }
+    for s in result["schedules"]:
+        s["title"] = apply_kage_glossary(s.get("title") or "")
+        s["memo"] = apply_kage_glossary(s.get("memo") or "")
+    for t in result["tasks"]:
+        t["title"] = apply_kage_glossary(t.get("title") or "")
     if not schedules and not tasks:
         result["message"] = "今日の予定・タスクはまだありません。📅ボタンから追加してください。"
     return result
@@ -2828,6 +2978,12 @@ def _fetch_upcoming(days: int = 7) -> dict:
         status = status_prop["name"] if status_prop else "未設定"
         est = row["properties"].get(NOTION_TASK_MINUTES_PROP, {}).get("number")
         tasks.append({"title": name, "date": d, "status": status, "minutes": est})
+
+    for s in schedules:
+        s["title"] = apply_kage_glossary(s.get("title") or "")
+        s["memo"] = apply_kage_glossary(s.get("memo") or "")
+    for t in tasks:
+        t["title"] = apply_kage_glossary(t.get("title") or "")
 
     return {"range": f"{start} ~ {end}", "schedules": schedules, "tasks": tasks}
 
@@ -3005,6 +3161,16 @@ def _compose_day_view(sid: str, target: date) -> dict:
         pass
     base = _local_today()
     phrase = _day_view_phrase(target, base)
+    for s in schedules:
+        s["title"] = apply_kage_glossary(s.get("title") or "")
+        s["memo"] = apply_kage_glossary(s.get("memo") or "")
+    for t in do_tasks:
+        t["title"] = apply_kage_glossary(t.get("title") or "")
+    for t in not_tasks:
+        t["title"] = apply_kage_glossary(t.get("title") or "")
+    for h in hints:
+        h["title"] = apply_kage_glossary(h.get("title") or "")
+        h["snippet"] = apply_kage_glossary(h.get("snippet") or "")
     return {
         "target_date": iso,
         "weekday_ja": _weekday_jp(target),
@@ -3392,6 +3558,9 @@ def _classify_intent_via_gemini(text: str, session_id: Optional[str] = None) -> 
 
     today_str = _local_today().isoformat()
     system_prompt = CLASSIFY_SYSTEM_PROMPT_TEMPLATE.replace("{today}", today_str)
+    ga = (_KAGE_GLOSSARY.get("classify_addon") or "").strip()
+    if ga:
+        system_prompt = system_prompt + "\n\n" + ga
 
     history_context = ""
     if session_id and session_id in CONVERSATIONS:
@@ -3693,7 +3862,7 @@ def think():
             lines.append("まだNotionに何もない。まずはタスクか予定を登録しろ。")
         answer = "\n".join(lines)
 
-    return {"message": answer}
+    return {"message": apply_kage_glossary(answer)}
 
 
 # ---------------------------------------------------------------------------
@@ -3734,11 +3903,11 @@ def chat(req: ChatRequest):
                 req.mime_type or "image/jpeg",
                 text,
             )
-            _add_to_session(sid, "assistant", imp["message"])
+            _add_to_session(sid, "assistant", apply_kage_glossary(imp["message"]))
             return {
                 "intent": "schedule",
                 "session_id": sid,
-                "message": imp["message"],
+                "message": apply_kage_glossary(imp["message"]),
                 "saved": bool(imp.get("ok")),
                 "schedule_image_import": True,
                 "schedule_import_meta": {
@@ -3843,8 +4012,9 @@ def chat(req: ChatRequest):
 
     # --- memo ---
     if intent == "memo":
-        title = ((classified.get("title") or text[:20]).strip() or "メモ")[:200]
-        content = classified.get("content") or text
+        title = apply_kage_glossary(((classified.get("title") or text[:20]).strip() or "メモ")[:200])
+        raw_c = (classified.get("content") or "").strip()
+        content = apply_kage_glossary((raw_c or text).strip())
         props = {**_title_prop(title)}
         props.update(_rich_text_prop_chunked("内容", content))
         try:
@@ -3855,8 +4025,9 @@ def chat(req: ChatRequest):
 
     # --- idea ---
     if intent == "idea":
-        title = ((classified.get("title") or text[:20]).strip() or "アイデア")[:200]
-        content = classified.get("content") or text
+        title = apply_kage_glossary(((classified.get("title") or text[:20]).strip() or "アイデア")[:200])
+        raw_c = (classified.get("content") or "").strip()
+        content = apply_kage_glossary((raw_c or text).strip())
         props = {**_title_prop(title)}
         props.update(_rich_text_prop_chunked("内容", content))
         try:
@@ -3877,8 +4048,8 @@ def chat(req: ChatRequest):
                 ),
                 "saved": False,
             })
-        content = ((classified.get("content") or "").strip() or text)
-        title = ((classified.get("title") or "").strip())
+        content = apply_kage_glossary(((classified.get("content") or "").strip() or text))
+        title = apply_kage_glossary(((classified.get("title") or "").strip()))
         if not title:
             title = _first_line_as_minutes_title(content)
         when_raw = ((classified.get("date") or "").strip())
@@ -3911,15 +4082,16 @@ def chat(req: ChatRequest):
 
     # --- task（Tasks DB・見積分。未入力ならセッションに保留して所要時間を聞く） ---
     if intent == "task":
-        title = (classified.get("title") or text[:120]).strip() or "タスク"
-        content = (classified.get("content") or "").strip()
+        title = apply_kage_glossary((classified.get("title") or text[:120]).strip() or "タスク")
+        raw_c = (classified.get("content") or "").strip()
+        body = apply_kage_glossary((raw_c or text).strip())
         d = classified.get("date") or _local_today().isoformat()
         if len(d) > 12:
             d = d[:10]
         minutes = _coerce_task_minutes(classified.get("minutes"))
         if minutes is not None:
             try:
-                page = _notion_save_task(title, content or text, minutes, d)
+                page = _notion_save_task(title, body, minutes, d)
                 _note_last_task(sid, page.get("id") if isinstance(page, dict) else None, title)
                 return _respond({
                     "intent": "task",
@@ -3932,7 +4104,7 @@ def chat(req: ChatRequest):
             logger.info("[task] pending_task を上書きします")
         CONVERSATIONS[sid]["pending_task"] = {
             "title": title,
-            "content": content or text,
+            "content": body,
             "date": d,
         }
         return _respond({
@@ -3952,37 +4124,48 @@ def chat(req: ChatRequest):
         title = ((classified.get("title") or text[:20]).strip() or "予定")[:200]
         d = classified.get("date") or _local_today().isoformat()
         memo = classified.get("memo") or classified.get("content") or ""
+        title_disp = apply_kage_glossary(title)
         try:
             out = _schedule_handle_request(title, d, memo)
             if out.get("need_schedule_confirmation"):
+                cands = out.get("schedule_candidates") or []
+                for c in cands:
+                    if isinstance(c, dict):
+                        c["title"] = apply_kage_glossary(c.get("title") or "")
+                        c["memo"] = apply_kage_glossary(c.get("memo") or "")
                 return _respond({
                     "intent": "schedule",
                     "message": out.get("message", ""),
                     "saved": False,
                     "need_schedule_confirmation": True,
-                    "schedule_candidates": out.get("schedule_candidates") or [],
+                    "schedule_candidates": cands,
                     "schedule_proposed": out.get("schedule_proposed") or {},
                 })
             if out.get("saved"):
                 return _respond({
                     "intent": "schedule",
-                    "message": out.get("message", f"予定を保存しました: {title} ({d})"),
+                    "message": out.get("message", f"予定を保存しました: {title_disp} ({d})"),
                     "saved": True,
                 })
             return _respond({
                 "intent": "schedule",
-                "message": out.get("message", f"Notion保存に失敗しました: {title}"),
+                "message": out.get("message", f"Notion保存に失敗しました: {title_disp}"),
                 "saved": False,
             })
         except HTTPException:
             raise
         except Exception:
-            return _respond({"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False})
+            return _respond({
+                "intent": "schedule",
+                "message": f"Notion保存に失敗しました: {title_disp}",
+                "saved": False,
+            })
 
     # --- profile ---
     if intent == "profile":
-        title = ((classified.get("title") or text[:20]).strip() or "プロフィール")[:200]
-        content = classified.get("content") or text
+        title = apply_kage_glossary(((classified.get("title") or text[:20]).strip() or "プロフィール")[:200])
+        raw_c = (classified.get("content") or "").strip()
+        content = apply_kage_glossary((raw_c or text).strip())
         category = classified.get("category") or "その他"
         props = {**_title_prop(title)}
         props.update(_rich_text_prop_chunked("内容", content))
@@ -4214,7 +4397,7 @@ def chat(req: ChatRequest):
     except Exception:
         answer = "ボス、申し訳ありません。現在回答を生成できませんでした。"
 
-    return _respond({"intent": "answer", "message": answer, "saved": False})
+    return _respond({"intent": "answer", "message": apply_kage_glossary(answer), "saved": False})
 
 
 # ---------------------------------------------------------------------------
@@ -4302,7 +4485,7 @@ def morning(session_id: Optional[str] = Query(None)):
         answer = "ボス、おはようございます。本日のブリーフィングを生成できませんでした。"
 
     return {
-        "message": answer,
+        "message": apply_kage_glossary(answer),
         "news": news_meta,
         "news_feedback_prompt": news_feedback_prompt,
     }
@@ -4484,7 +4667,7 @@ def opening_line(
             "今日も急がず、よろしくお願いいたします。"
         )
 
-    out["line"] = line
+    out["line"] = apply_kage_glossary(line)
     return out
 
 
@@ -4674,6 +4857,21 @@ def api_kage_release_json():
     """版 JSON（CDN/ブラウザにキャッシュされにくい経路）。ヘッダーは no-store。"""
     return JSONResponse(
         content=_read_kage_release(),
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+        },
+    )
+
+
+@app.get("/api/kage-glossary.json")
+def api_kage_glossary_json():
+    """固有用語の正書法一覧（長い順）。フロントのハイライト用。"""
+    return JSONResponse(
+        content={
+            "version": int(_KAGE_GLOSSARY.get("version") or 0),
+            "highlight_terms": _KAGE_GLOSSARY.get("highlight_terms") or [],
+        },
         headers={
             "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
             "Pragma": "no-cache",

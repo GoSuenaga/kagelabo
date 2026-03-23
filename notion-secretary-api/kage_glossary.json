@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "description": "固有用語の正書法。別名は長いものほど先にマッチし、短い語との取り違えを防ぎます。色は static/style.css の --kage-glossary-* で変更できます。",
+  "entries": [
+    {
+      "canonical": "リクルートエージェント",
+      "aliases": [],
+      "note": "人材サービス名。Recruit（企業名）とは別。略さずこの表記を正とする。"
+    },
+    {
+      "canonical": "Recruit",
+      "aliases": ["リクルート"],
+      "note": "株式会社リクルート等の企業名。「リクルートエージェント」と混同しないこと。"
+    },
+    {
+      "canonical": "VANTAN",
+      "aliases": ["バンタン", "ヴァンタン", "vantan", "Vantan"],
+      "note": "学校法人 VANTAN。基本は英字表記で統一。"
+    },
+    {
+      "canonical": "CA",
+      "aliases": ["サイバーエージェント", "CyberAgent", "CYBER AGENT", "Cyber Agent"],
+      "note": "株式会社サイバーエージェントの略。"
+    },
+    {
+      "canonical": "RAG",
+      "aliases": ["ラグ"],
+      "note": "検索拡張生成（Retrieval-Augmented Generation）。音声「ラグ」表記との混同を防ぐ。"
+    }
+  ]
+}

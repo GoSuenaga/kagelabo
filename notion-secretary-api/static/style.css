@@ -22,6 +22,11 @@
   --chat-pad-x: 16px;
   --bubble-user-bg: #232338;
   --bubble-user-text: #f4f2ff;
+
+  /* 固有用語ハイライト（kage_glossary.json と対。テーマ変更はここだけ触ればよい） */
+  --kage-glossary-fg: #c4b5fd;
+  --kage-glossary-bg: rgba(139, 92, 246, 0.14);
+  --kage-glossary-border: rgba(167, 139, 250, 0.45);
 }
 
 html, body {
@@ -357,6 +362,17 @@ body {
   color: var(--muted);
   margin-top: 2px;
 }
+/* 固有用語（辞書の正書法が入った箇所を1色で示す） */
+.kage-glossary-term {
+  color: var(--kage-glossary-fg);
+  background: var(--kage-glossary-bg);
+  border-bottom: 1px solid var(--kage-glossary-border);
+  padding: 0 0.12em;
+  border-radius: 3px;
+  font-weight: 600;
+  font-synthesis: none;
+}
+
 .dv-do .dv-h { color: #8b9dc3; }
 .dv-not .dv-h { color: var(--muted); }
 .dv-not {

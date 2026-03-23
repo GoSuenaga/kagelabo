@@ -46,6 +46,61 @@ function esc(s) {
     .replace(/&/g,'&amp;').replace(/</g,'&lt;')
     .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/** サーバが返す正書法語（/api/kage-glossary.json）。長い順。 */
+let kageGlossaryTerms = [];
+
+async function loadKageGlossary() {
+  try {
+    const r = await fetch(API + '/api/kage-glossary.json', { cache: 'no-store' });
+    if (!r.ok) return;
+    const j = await r.json();
+    if (Array.isArray(j.highlight_terms)) kageGlossaryTerms = j.highlight_terms;
+  } catch (_) {}
+}
+
+function _glossaryAsciiToken(t) {
+  return typeof t === 'string' && t.length > 0 && /^[A-Za-z0-9]+$/.test(t);
+}
+
+/** esc 後の文字列に、辞書の正書法だけ1色でマーク（HTMLはエスケープ済み前提） */
+function wrapGlossaryInEscapedHtml(e) {
+  if (!e || !kageGlossaryTerms.length) return e;
+  const out = [];
+  let i = 0;
+  const n = e.length;
+  while (i < n) {
+    let matched = null;
+    for (const t of kageGlossaryTerms) {
+      if (!t || !t.length) continue;
+      if (!e.startsWith(t, i)) continue;
+      if (_glossaryAsciiToken(t)) {
+        const prev = i > 0 ? e[i - 1] : '';
+        const next = i + t.length < n ? e[i + t.length] : '';
+        if (/[A-Za-z]/.test(prev) || /[A-Za-z]/.test(next)) continue;
+      }
+      matched = t;
+      break;
+    }
+    if (matched) {
+      out.push(
+        '<span class="kage-glossary-term" title="固有用語（辞書の正書法）">',
+        matched,
+        '</span>'
+      );
+      i += matched.length;
+    } else {
+      out.push(e[i]);
+      i += 1;
+    }
+  }
+  return out.join('');
+}
+
+/** 影側メッセージ用: エスケープ＋固有用語ハイライト */
+function escGloss(s) {
+  return wrapGlossaryInEscapedHtml(esc(s));
+}
 function fmtDateHeader() {
   const d = new Date();
   return d.toLocaleDateString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short'});
@@ -217,12 +272,12 @@ function renderScheduleDupConfirm(data) {
     const snip =
       c.memo && c.memo.length
         ? '<br><span class="sched-dup-memo">' +
-          esc(c.memo.length > 140 ? c.memo.slice(0, 140) + '…' : c.memo) +
+          escGloss(c.memo.length > 140 ? c.memo.slice(0, 140) + '…' : c.memo) +
           '</span>'
         : '';
     list +=
       '<li><strong>' +
-      esc(c.title || '') +
+      escGloss(c.title || '') +
       '</strong> <span class="sched-dup-sim">（類似 ' +
       pct +
       '%）</span>' +
@@ -233,7 +288,7 @@ function renderScheduleDupConfirm(data) {
   const html =
     '<div class="schedule-dup-wrap">' +
     (BADGE.schedule ? '<span class="badge-intent">' + BADGE.schedule + '</span><br>' : '') +
-    esc(data.message || 'この予定は重複していませんか？') +
+    escGloss(data.message || 'この予定は重複していませんか？') +
     list +
     '<p class="sched-dup-hint">秘書として、登録前に念のためお伺いしています。</p>' +
     '<div class="confirm-row schedule-dup-actions">' +
@@ -252,7 +307,7 @@ function renderScheduleDupConfirm(data) {
 function renderDayView(data) {
   const dv = data.day_view;
   if (!dv) return;
-  const intro = esc(data.message || '');
+  const intro = escGloss(data.message || '');
   let h =
     '<div class="day-view-card">' +
     '<div class="day-view-badge">📅 1日の予定</div>' +
@@ -271,9 +326,9 @@ function renderDayView(data) {
         '<div class="dv-row"><span class="dv-time">' +
         esc(s.time || '—') +
         '</span><span class="dv-body">' +
-        esc(s.title || '') +
+        escGloss(s.title || '') +
         (s.memo && s.memo.length > 2 && s.memo !== s.title
-          ? '<span class="dv-sub">' + esc(s.memo.slice(0, 80)) + (s.memo.length > 80 ? '…' : '') + '</span>'
+          ? '<span class="dv-sub">' + escGloss(s.memo.slice(0, 80)) + (s.memo.length > 80 ? '…' : '') + '</span>'
           : '') +
         '</span></div>';
     });
@@ -291,9 +346,9 @@ function renderDayView(data) {
     dv.do_tasks.forEach(t => {
       h +=
         '<li><span class="dv-task-title">' +
-        esc(t.title || '') +
+        escGloss(t.title || '') +
         '</span>' +
-        (t.status ? '<span class="dv-status">' + esc(t.status) + '</span>' : '') +
+        (t.status ? '<span class="dv-status">' + escGloss(t.status) + '</span>' : '') +
         '</li>';
     });
     h += '</ul>';
@@ -310,7 +365,7 @@ function renderDayView(data) {
   } else {
     h += '<ul class="dv-list dv-list-muted">';
     dv.not_do_tasks.forEach(t => {
-      h += '<li><span class="dv-task-title">' + esc(t.title || '') + '</span></li>';
+      h += '<li><span class="dv-task-title">' + escGloss(t.title || '') + '</span></li>';
     });
     h += '</ul>';
   }
@@ -321,9 +376,9 @@ function renderDayView(data) {
     dv.memo_hints.forEach(m => {
       h +=
         '<li><strong>' +
-        esc(m.title || 'メモ') +
+        escGloss(m.title || 'メモ') +
         '</strong> — ' +
-        esc(m.snippet || '') +
+        escGloss(m.snippet || '') +
         '</li>';
     });
     h += '</ul></details>';
@@ -332,7 +387,7 @@ function renderDayView(data) {
   if (dv.mentor_tip) {
     h +=
       '<p class="dv-mentor-tip" role="note"><span class="dv-mentor-label">影より</span>' +
-      esc(dv.mentor_tip) +
+      escGloss(dv.mentor_tip) +
       '</p>';
   }
 
@@ -359,7 +414,7 @@ function renderResponse(data, originalText) {
       saved === true
         ? '<br><span class="badge-save">✓ 画像から予定を Notion に登録しました</span>'
         : '<br><span class="badge-save dim-save">※ 予定を読み取れませんでした。「明日の予定」「スケジュール取り込んで」などと添えてお試しください</span>';
-    addMsg('kage', `${b}${esc(message || '')}${foot}`, saved === true ? 'saved' : 'warn');
+    addMsg('kage', `${b}${escGloss(message || '')}${foot}`, saved === true ? 'saved' : 'warn');
     return;
   }
 
@@ -368,7 +423,7 @@ function renderResponse(data, originalText) {
     const foot = saved === true
       ? '<br><span class="badge-save">✓ Notion Tasks に記録しました</span>'
       : '<br><span class="badge-save dim-save">※ 所要時間の入力待ち、または保存できませんでした</span>';
-    addMsg('kage', `${b}${esc(message||'')}${foot}`, saved === true ? 'saved' : 'warn');
+    addMsg('kage', `${b}${escGloss(message||'')}${foot}`, saved === true ? 'saved' : 'warn');
     return;
   }
 
@@ -377,7 +432,7 @@ function renderResponse(data, originalText) {
     const foot = saved
       ? '<br><span class="badge-save">✓ Notionに記録しました</span>'
       : '<br><span class="badge-save dim-save">※ この端末のセッションのみ、またはNotion未保存です</span>';
-    addMsg('kage', `${b}${esc(message||'')}${foot}`, 'saved');
+    addMsg('kage', `${b}${escGloss(message||'')}${foot}`, 'saved');
     return;
   }
 
@@ -387,13 +442,13 @@ function renderResponse(data, originalText) {
     const foot = saved === true
       ? '<br><span class="badge-save">✓ Notion保存済み</span>'
       : '<br><span class="badge-save dim-save">※ Notionに保存できませんでした（再試行またはコピーログで共有ください）</span>';
-    addMsg('kage', `${b}${esc(message||'')}${foot}`, saved === true ? 'saved' : 'error');
+    addMsg('kage', `${b}${escGloss(message||'')}${foot}`, saved === true ? 'saved' : 'error');
     return;
   }
 
   if (['unknown','unknown_question','unclear'].includes(intent)) {
     addMsg('kage', `
-      ${esc(message||'どのように保存しますか？')}
+      ${escGloss(message||'どのように保存しますか？')}
       <div class="confirm-row">
         <button class="cfm-btn" data-confirm="memo"  data-orig="${esc(originalText||'')}">📝 メモ</button>
         <button class="cfm-btn" data-confirm="idea"  data-orig="${esc(originalText||'')}">💡 アイデア</button>
@@ -404,7 +459,7 @@ function renderResponse(data, originalText) {
   }
 
   if (intent === 'done' && data.candidates && data.candidates.length > 0) {
-    let html = esc(message) + '<div class="confirm-row" style="flex-direction:column;gap:6px;margin-top:8px">';
+    let html = escGloss(message) + '<div class="confirm-row" style="flex-direction:column;gap:6px;margin-top:8px">';
     data.candidates.forEach(c => {
       html += `<button class="cfm-btn archive-btn" data-pageid="${esc(c.page_id)}" data-title="${esc(c.title)}" style="text-align:left;padding:8px 12px">🗑️ ${esc(c.title)}（${esc(c.db)}）</button>`;
     });
@@ -427,11 +482,11 @@ function renderResponse(data, originalText) {
       saved === true
         ? '<br><span class="badge-save">✓ Notionメモ（[ニュースFB]）に反映しました</span>'
         : '';
-    addMsg('kage', `${b}${esc(message || '')}${foot}`, saved === true ? 'saved' : '');
+    addMsg('kage', `${b}${escGloss(message || '')}${foot}`, saved === true ? 'saved' : '');
     return;
   }
 
-  addMsg('kage', esc(message||'承知しました。'));
+  addMsg('kage', escGloss(message||'承知しました。'));
 }
 
 // ── Think: シングルタスク強調 + その他は折りたたみ ──
@@ -472,11 +527,11 @@ function renderThinkRestSections(sections) {
   for (const s of sections) {
     if (!s.body || !s.body.trim()) continue;
     if (s.title !== '_raw') {
-      h += '<div class="think-more-sec-title">' + esc(s.title) + '</div>';
+      h += '<div class="think-more-sec-title">' + escGloss(s.title) + '</div>';
     }
     const lines = s.body.split('\n').map(l => l.trim()).filter(Boolean);
     for (const line of lines) {
-      h += '<div class="think-item think-item-dim">' + esc(line) + '</div>';
+      h += '<div class="think-item think-item-dim">' + escGloss(line) + '</div>';
     }
   }
   return h;
@@ -486,7 +541,7 @@ function renderThinkRestSections(sections) {
 function buildThinkHtml(text) {
   const sections = parseThinkSections(text);
   if (!sections.length) {
-    return '<div class="think-item">' + esc(String(text).trim()) + '</div>';
+    return '<div class="think-item">' + escGloss(String(text).trim()) + '</div>';
   }
 
   let kageFoot = '';
@@ -531,7 +586,7 @@ function buildThinkHtml(text) {
   }
 
   if (!heroText) {
-    return '<div class="think-item">' + esc(String(text).trim()) + '</div>';
+    return '<div class="think-item">' + escGloss(String(text).trim()) + '</div>';
   }
 
   const restSections = trimmedBodies
@@ -548,7 +603,7 @@ function buildThinkHtml(text) {
   let html = '';
   html += '<div class="think-hero-block">';
   html += '<div class="think-hero-label">いまやること</div>';
-  html += '<div class="think-hero-text">' + esc(heroText) + '</div>';
+  html += '<div class="think-hero-text">' + escGloss(heroText) + '</div>';
   html += '</div>';
 
   if (itemCount > 0 && restHtml) {
@@ -562,7 +617,7 @@ function buildThinkHtml(text) {
   }
 
   if (kageFoot && kageFoot.trim()) {
-    html += '<div class="think-kage-foot">' + esc(kageFoot.trim()) + '</div>';
+    html += '<div class="think-kage-foot">' + escGloss(kageFoot.trim()) + '</div>';
   }
 
   return html;
@@ -696,11 +751,11 @@ chatArea.addEventListener('click', async e => {
       if (data.saved) {
         addMsg(
           'kage',
-          `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || '既存の予定にまとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+          `📅 <strong>${escGloss(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${escGloss(data.message || '既存の予定にまとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
           'saved'
         );
       } else {
-        addMsg('kage', esc(data.message || 'まとめに失敗しました。'), 'error');
+        addMsg('kage', escGloss(data.message || 'まとめに失敗しました。'), 'error');
       }
     } catch (err) {
       hideTyping();
@@ -737,11 +792,11 @@ chatArea.addEventListener('click', async e => {
         if (data.saved) {
           addMsg(
             'kage',
-            `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || '新規に登録しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+            `📅 <strong>${escGloss(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${escGloss(data.message || '新規に登録しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
             'saved'
           );
         } else {
-          addMsg('kage', esc(data.message || '保存に失敗しました。'), 'error');
+          addMsg('kage', escGloss(data.message || '保存に失敗しました。'), 'error');
         }
       } catch (err) {
         hideTyping();
@@ -767,11 +822,11 @@ chatArea.addEventListener('click', async e => {
           if (data.saved) {
             addMsg(
               'kage',
-              `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || 'まとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+              `📅 <strong>${escGloss(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${escGloss(data.message || 'まとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
               'saved'
             );
           } else {
-            addMsg('kage', esc(data.message || 'まとめに失敗しました。'), 'error');
+            addMsg('kage', escGloss(data.message || 'まとめに失敗しました。'), 'error');
           }
         } catch (err) {
           hideTyping();
@@ -855,11 +910,11 @@ async function saveSched() {
     } else if (data.saved) {
       addMsg(
         'kage',
-        `📅 <strong>${esc(title)}</strong><br>${fmtDate(date)}<br>${esc(data.message || '')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+        `📅 <strong>${escGloss(title)}</strong><br>${fmtDate(date)}<br>${escGloss(data.message || '')}<br><span class="badge-save">✓ Notion保存済み</span>`,
         'saved'
       );
     } else {
-      addMsg('kage', esc(data.message || '保存できませんでした。'), 'error');
+      addMsg('kage', escGloss(data.message || '保存できませんでした。'), 'error');
     }
   } catch(e) {
     hideTyping(); addMsg('kage',`ボス、保存に失敗しました。`,'error');
@@ -902,7 +957,7 @@ async function saveMinutes() {
   try {
     await post('/minutes', { title, when, content });
     hideTyping();
-    addMsg('kage',`📋 <strong>${esc(title)}</strong><br>${esc(when)}<br><span class="badge-save">✓ 議事録 DB に保存しました</span>`,'saved');
+    addMsg('kage',`📋 <strong>${escGloss(title)}</strong><br>${esc(when)}<br><span class="badge-save">✓ 議事録 DB に保存しました</span>`,'saved');
   } catch (e) {
     hideTyping();
     const detail = esc(String(e.message || e));
@@ -947,8 +1002,8 @@ function renderUpcomingModal(data) {
     const m = s.memo||s.Memo||s.note||'';
     h += `<div class="upcoming-item">
       <div class="item-date">${fmtDate(d)}</div>
-      <div class="item-title">${esc(t)}</div>
-      ${m?`<div class="item-memo">${esc(m)}</div>`:''}
+      <div class="item-title">${escGloss(t)}</div>
+      ${m?`<div class="item-memo">${escGloss(m)}</div>`:''}
     </div>`;
   });
   h += '</div>';
@@ -1294,7 +1349,7 @@ async function showOpeningLine() {
     if (data.line) {
       addMsg(
         'kage',
-        `<div class="opening-line"><span class="opening-kicker">影</span>${esc(data.line)}</div>`,
+        `<div class="opening-line"><span class="opening-kicker">影</span>${escGloss(data.line)}</div>`,
         '',
         { noScroll: true }
       );
@@ -1330,13 +1385,13 @@ async function showMorningBriefing() {
         if (!trimmed) continue;
         const match = trimmed.match(/^【(.+?)】(.*)$/s);
         if (match) {
-          html += '<div class="think-section-title">' + esc(match[1]) + '</div>';
+          html += '<div class="think-section-title">' + escGloss(match[1]) + '</div>';
           const lines = match[2].trim().split('\n').filter(l => l.trim());
           for (const line of lines) {
-            html += '<div class="think-item">' + esc(line) + '</div>';
+            html += '<div class="think-item">' + escGloss(line) + '</div>';
           }
         } else {
-          html += '<div class="think-item">' + esc(trimmed) + '</div>';
+          html += '<div class="think-item">' + escGloss(trimmed) + '</div>';
         }
       }
       let newsBlock = '';
@@ -1370,7 +1425,7 @@ async function showMorningBriefing() {
       }
       addMsg(
         'kage',
-        '<div class="think-section">' + (html || esc(data.message)) + '</div>' + newsBlock,
+        '<div class="think-section">' + (html || escGloss(data.message)) + '</div>' + newsBlock,
         '',
         { noScroll: true }
       );
@@ -1395,6 +1450,7 @@ async function showMorningBriefing() {
 
 // ── Init ──────────────────────────────────────────
 (async function bootKage() {
+  await loadKageGlossary();
   if (headerDate) headerDate.textContent = fmtDateHeader();
   showWelcome();
   await showOpeningLine();
