@@ -111,6 +111,46 @@
 
 ---
 
+## 運用ルール（Claude Code Web / CLI 共通）
+
+### 環境の使い分け
+
+| 環境 | 役割 | できること |
+|------|------|-----------|
+| **Claude Code Web** | 設計・コーディング | コード編集、台本設計、プロンプト調整、新スクリプト作成、Git コミット |
+| **Claude Code CLI（ローカル）** | 実行 | `python generate_*.py` の実行、API 呼び出し、動画生成 |
+| **GitHub** | コードの同期 | Web で書いたコードを pull してローカルで実行 |
+| **Dropbox** | メディア管理 | 音源・生成物はローカル Dropbox フォルダに保存（Git 管理外） |
+
+### ファイル管理
+
+```
+リポジトリ（Git 管理 → GitHub 同期）
+├── apps/vantan-video/
+│   ├── generate_*.py, vlog_engine.py  ← コード（Web で編集可）
+│   ├── workflow_config.json           ← 設定（Web で編集可）
+│   └── vlog_prompt_bible.md           ← 設計書（Web で編集可）
+│
+ローカル専用（Git 管理外 → Dropbox 同期）
+├── apps/vantan-video/clients/         ← SE/BGM 音源
+├── apps/vantan-video/output/          ← 生成された動画・音声
+├── .env                               ← API キー
+└── credentials.json, token.json       ← Google OAuth
+```
+
+### ワークフロー
+
+```
+① Web でコード・プロンプトを編集 → push
+② ローカルで pull → python 実行 → output/ に生成物
+③ Dropbox が output/ を自動同期
+```
+
+### Claude Code Web への注意事項
+- **実行系のタスクを頼まれても、コードの作成・修正までが担当。** 実行はユーザーがローカルで行う。
+- `clients/`, `output/`, `.env` はサンドボックスに存在しない。これらを前提としたコードは書けるが、テスト実行はできない。
+- ローカルファイルパスを直接 Creatomate に渡しているわけではない。`upload()` 関数で fal.ai ストレージに一時アップロードし、URL 経由で渡している。
+
 ## 再開手順
 
 1. リポジトリルートで `README.md` と本ファイルを確認
