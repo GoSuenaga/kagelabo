@@ -366,11 +366,8 @@ body {
 .kage-glossary-term {
   color: var(--kage-glossary-fg);
   background: var(--kage-glossary-bg);
-  border-bottom: 1px solid var(--kage-glossary-border);
   padding: 0 0.12em;
   border-radius: 3px;
-  font-weight: 600;
-  font-synthesis: none;
 }
 
 .dv-do .dv-h { color: #8b9dc3; }
