@@ -113,12 +113,18 @@ function hideTyping() { typingEl && (typingEl.remove(), typingEl = null); }
 function showWelcome() {
   const h = new Date().getHours();
   const g = h < 12 ? 'おはようございます' : h < 18 ? 'お疲れ様です' : 'お疲れ様です';
+  const body =
+    h < 12
+      ? '今日のメモ・予定・タスクも、議事録の整理も、ここからで大丈夫です。遠慮なく話しかけてください。'
+      : h < 18
+        ? '午後の予定や残タスクを一緒に整えたり、議事録を預けたりしても構いません。何でも話しかけてください。'
+        : '今日を締める前に、メモや明日の予定だけでも置いていってください。こちらにいますので、何でも話しかけてください。';
   // 日付はヘッダー、時刻はOSステータスバーに任せ、ウェルカムでは日時を出さない（重複削減）
   addMsg(
     'kage',
     `
     <div class="welcome welcome--compact">
-      <p class="welcome-lead"><strong>${g}、ボス。</strong> 何でも話しかけてください。</p>
+      <p class="welcome-lead"><strong>${g}、ボス。</strong> ${body}</p>
       <details class="welcome-details">
         <summary class="welcome-details-sum">使い方ヒント（タップで開く）</summary>
         <div class="welcome-details-body">

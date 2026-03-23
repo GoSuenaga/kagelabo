@@ -1,5 +1,5 @@
 {
-  "app_version": "0.156",
+  "app_version": "0.157",
   "release_date": "2026-03-23",
-  "summary": "PC向けチャットUI: flexレイアウト・バブル折り返し・視認性"
+  "summary": "初回ウェルカム文の充実、一言目の句点まで整形（途切れ防止）"
 }

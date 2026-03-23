@@ -533,17 +533,21 @@ OPENING_LINE_SYSTEM_PROMPT = f"""\
 
 {BOSS_PROFILE}
 
-役割: アプリを開いた直後に表示する「ひと言」だけを書く。
-直前の画面で日付・時刻と「おはよう／お疲れ様」挨拶は既に出ているので、それらの繰り返しはしない。
+役割: ウェルカム文言の**直後**に続く「ひと言」を、**1ブロックの本文だけ**で書く（見出し・箇条書き・改行は禁止。文と文の間は全角スペース1つまで可）。
 
-絶対ルール:
+直前の画面で時間帯の挨拶（おはよう／お疲れ様等）は既に出ているので、**同じ種類の挨拶の繰り返しはしない**。代わりに、Notionの状況に寄り添う**中身のある一文〜二文**にする。
+
+品質（最重要）:
+- **必ず完結した日本語にする**。体言止め・語の途中・固有名詞だけで終わることは禁止
+- **最後の文字は「。」「！」「？」のいずれか**（省略記号だけで終わらない）
+- 長さは**だいたい70〜130字**（上限**140字まで**）。短すぎて物足りない一言だけは避ける
+
+その他:
 - 「〜しろ」「〜やれ」等の命令口調は禁止
-- 丁寧で短い。1〜2文、合計140文字以内
-- 「ボス」は使わないか、文末に一度だけ
-- 渡されたNotionデータ（プロフィール・メモ・予定・タスク・議事録）に書かれている事実だけを使う。ない内容を捏造しない
-- プロフィールやメモから、ボスと影だけがわかるようなさりげない言及を1つ入れてよい（無理に入れない）
-- 今日の予定・タスク・締切がデータにあればさりげなく触れてよい（なくてもよい）
-- 心を和らげる、落ち着いたトーン。前置き・箇条書き・見出し・改行は禁止。本文のみ1ブロックで出力\
+- 「ボス」は使わないか、文末に一度まで
+- Notionデータにない事実は捏造しない。プロフィール・メモからさりげない言及を1つ入れてよい（無理に入れない）
+- 予定・タスク・締切・議事録がデータにあればさりげなく触れてよい
+- 落ち着いた丁寧語。出力は本文のみ（「影:」などの接頭辞も不要）\
 """
 
 app = FastAPI(title="Notion Secretary API", version=_KAGE_APP_VERSION)
@@ -3483,6 +3487,44 @@ def api_news_digest(
 # GET /opening — 起動時のひと言（日時はフロント表示用。ここはパーソナルな一言のみ）
 # ---------------------------------------------------------------------------
 
+OPENING_LINE_MAX_CHARS = 140
+
+
+def _finalize_opening_line(raw: str, max_chars: int = OPENING_LINE_MAX_CHARS) -> str:
+    """
+    改行除去・接頭辞除去のうえ、140字超は最後の句点まで戻して途切れ感を減らす。
+    """
+    line = (raw or "").strip()
+    line = " ".join(line.split())
+    for prefix in ("影:", "影：", "影 ", "KAGE:", "KAGE："):
+        if line.lower().startswith(prefix.lower()):
+            line = line[len(prefix) :].strip()
+    if not line:
+        return line
+    if len(line) > max_chars:
+        chunk = line[:max_chars]
+        best = -1
+        for sep in ("。", "！", "？", "…"):
+            j = chunk.rfind(sep)
+            if j > best:
+                best = j
+        if best >= 24:
+            return chunk[: best + 1]
+        return chunk.rstrip("、，, ") + "…"
+    if len(line) >= 10 and line[-1] not in "。！？…":
+        best = -1
+        for sep in ("。", "！", "？"):
+            j = line.rfind(sep)
+            if j > best:
+                best = j
+        # 「…。途中で切れた英単語・固有名詞」だけが残っている場合は前の句点まで戻す
+        if best >= 4:
+            line = line[: best + 1]
+        else:
+            line = line + "…"
+    return line
+
+
 def _brain_slice_for_opening(brain: dict) -> dict:
     """トークン節約のため opening 用に間引き"""
     prof = brain.get("profile") or []
@@ -3520,7 +3562,10 @@ def opening_line(
         out["session_id"] = sid_boot
 
     if not GEMINI_API_KEY:
-        out["line"] = "本日も無理せず、よろしくお願いいたします。"
+        out["line"] = (
+            "本日もこちらでメモや予定、議事録の整理だけでも構いません。"
+            "無理のないペースで、よろしくお願いいたします。"
+        )
         return out
 
     try:
@@ -3545,18 +3590,19 @@ def opening_line(
             "system_instruction": {"parts": [{"text": OPENING_LINE_SYSTEM_PROMPT}]},
             "contents": [{"parts": [{"text": payload}]}],
             "generationConfig": {
-                "temperature": 0.85,
-                "maxOutputTokens": 220,
+                "temperature": 0.82,
+                "maxOutputTokens": 420,
             },
         }, timeout=20)
         resp.raise_for_status()
         line = resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        line = " ".join(line.split())  # 改行を潰す
-        if len(line) > 280:
-            line = line[:277] + "…"
+        line = _finalize_opening_line(line, OPENING_LINE_MAX_CHARS)
     except Exception as e:
         logger.error("[opening] Gemini failed: %s", e)
-        line = "本日もよろしくお願いいたします。無理のないペースでまいりましょう。"
+        line = (
+            "Notionの予定やタスクを軽く眺めました。"
+            "今日も急がず、よろしくお願いいたします。"
+        )
 
     out["line"] = line
     return out
