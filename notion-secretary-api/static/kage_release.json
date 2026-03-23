@@ -1,5 +1,5 @@
 {
-  "app_version": "0.153",
+  "app_version": "0.154",
   "release_date": "2026-03-23",
-  "summary": "議事録スキーマのドキュメント整備・UIエラーヒント"
+  "summary": "議事録: Notion APIからDBスキーマ自動インポート"
 }

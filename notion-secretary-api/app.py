@@ -60,14 +60,12 @@ DB = {
     "Minutes":  os.environ.get("NOTION_DB_MINUTES", "").strip(),
 }
 
-# 議事録 DB（標準スキーマは create_minutes_database.py と同一）
-#   名前 = title 型 / 日時 = date / 内容 = rich_text / 任意 原文 = rich_text
-# Notion 側をこの型に揃えるのが推奨。列名だけ違うときだけ下の *_PROP を設定する。
-NOTION_MINUTES_TITLE_PROP = os.environ.get("NOTION_MINUTES_TITLE_PROP", "名前").strip() or "名前"
-NOTION_MINUTES_DATETIME_PROP = os.environ.get("NOTION_MINUTES_DATETIME_PROP", "日時").strip() or "日時"
-NOTION_MINUTES_CONTENT_PROP = os.environ.get("NOTION_MINUTES_CONTENT_PROP", "内容").strip() or "内容"
-# 空なら要約+原文を「内容」1列にまとめる。別列に生テキストを分けたいときだけ「原文」等を指定
-NOTION_MINUTES_RAW_PROP = os.environ.get("NOTION_MINUTES_RAW_PROP", "").strip()
+# 議事録 DB: 既定では Notion GET /databases/{id} で列名・型を読み取り自動マッピング（ヒューマンエラー削減）
+# 任意で NOTION_MINUTES_*_PROP を設定するとその項目だけ上書き。KAGE_MINUTES_SCHEMA_AUTO=0 で API を使わず固定名のみ。
+KAGE_MINUTES_SCHEMA_AUTO = os.environ.get("KAGE_MINUTES_SCHEMA_AUTO", "1").strip().lower() not in (
+    "0", "false", "no", "off",
+)
+MINUTES_SCHEMA_CACHE_SEC = float(os.environ.get("KAGE_MINUTES_SCHEMA_CACHE_SEC", "300"))
 # 文字数がこの以上なら Gemini で要約（原文は別プロパティまたは内容の後半に保存）
 KAGE_MINUTES_SUMMARIZE_THRESHOLD = int(os.environ.get("KAGE_MINUTES_SUMMARIZE_THRESHOLD", "1200"))
 KAGE_MINUTES_SUMMARIZE_ENABLED = os.environ.get("KAGE_MINUTES_SUMMARIZE", "1").strip().lower() not in (
@@ -581,14 +579,19 @@ def _notion_patch(path: str, body: dict) -> dict:
     return resp.json()
 
 
+def _notion_get(path: str) -> dict:
+    resp = requests.get(f"{BASE}{path}", headers=HEADERS)
+    if resp.status_code >= 400:
+        try:
+            detail = resp.json().get("message", resp.text)
+        except Exception:
+            detail = resp.text
+        raise HTTPException(status_code=resp.status_code, detail=detail)
+    return resp.json()
+
+
 def _title_prop(text: str) -> dict:
     return {"名前": {"title": [{"text": {"content": text}}]}}
-
-
-def _minutes_title_prop(text: str) -> dict:
-    """議事録 DB のタイトル型プロパティ（NOTION_MINUTES_TITLE_PROP）へ"""
-    key = NOTION_MINUTES_TITLE_PROP
-    return {key: {"title": [{"text": {"content": (text or "")[:200]}}]}}
 
 
 def _rich_text_prop(key: str, text: str) -> dict:
@@ -652,6 +655,186 @@ def _minutes_db_configured() -> bool:
     return bool((DB.get("Minutes") or "").strip())
 
 
+def _env_minutes_override(key: str) -> Optional[str]:
+    """環境変数が無ければ None（自動）。空文字だけ設定されたら None と同扱い。"""
+    if key not in os.environ:
+        return None
+    s = (os.environ.get(key) or "").strip()
+    return s if s else None
+
+
+def _minutes_schema_manual() -> dict:
+    """API を使わないときの固定スキーマ（従来互換）。"""
+    return {
+        "title_prop": _env_minutes_override("NOTION_MINUTES_TITLE_PROP") or "名前",
+        "datetime_prop": _env_minutes_override("NOTION_MINUTES_DATETIME_PROP") or "日時",
+        "content_prop": _env_minutes_override("NOTION_MINUTES_CONTENT_PROP") or "内容",
+        "raw_prop": _minutes_raw_from_env_only(),
+    }
+
+
+def _minutes_raw_from_env_only() -> Optional[str]:
+    if "NOTION_MINUTES_RAW_PROP" not in os.environ:
+        return None
+    s = (os.environ.get("NOTION_MINUTES_RAW_PROP") or "").strip()
+    return s if s else None
+
+
+def _resolve_raw_prop_notion(
+    properties: dict,
+    content_key: str,
+    title_key: str,
+    date_key: str,
+) -> Optional[str]:
+    """環境で原文列が指定されていればそれ。無ければ DB に「原文」rich_text があれば採用。"""
+    if "NOTION_MINUTES_RAW_PROP" in os.environ:
+        s = (os.environ.get("NOTION_MINUTES_RAW_PROP") or "").strip()
+        if not s:
+            return None
+        p = properties.get(s) or {}
+        if p.get("type") != "rich_text":
+            return None
+        return s
+    p = properties.get("原文") or {}
+    if p.get("type") != "rich_text":
+        return None
+    if "原文" in (content_key, title_key, date_key):
+        return None
+    return "原文"
+
+
+def _minutes_schema_from_properties(properties: dict) -> dict:
+    title_o = _env_minutes_override("NOTION_MINUTES_TITLE_PROP")
+    date_o = _env_minutes_override("NOTION_MINUTES_DATETIME_PROP")
+    content_o = _env_minutes_override("NOTION_MINUTES_CONTENT_PROP")
+
+    title_keys = [k for k, v in properties.items() if v.get("type") == "title"]
+    if not title_keys:
+        raise ValueError("title 型のプロパティがありません（会議名用のタイトル列を追加してください）")
+    if title_o:
+        if title_o not in properties or properties[title_o].get("type") != "title":
+            raise ValueError(
+                f"NOTION_MINUTES_TITLE_PROP={title_o!r} が DB に無いか、title 型ではありません"
+            )
+        title_key = title_o
+    else:
+        prefer_t = ("名前", "Name", "タイトル", "Title")
+        title_key = next((p for p in prefer_t if p in title_keys), title_keys[0])
+
+    date_keys = [k for k, v in properties.items() if v.get("type") == "date"]
+    if date_o:
+        if date_o not in properties or properties[date_o].get("type") != "date":
+            raise ValueError(
+                f"NOTION_MINUTES_DATETIME_PROP={date_o!r} が DB に無いか、date 型ではありません"
+            )
+        date_key = date_o
+    else:
+        if not date_keys:
+            raise ValueError("date 型のプロパティがありません（日時・日付列を追加してください）")
+        prefer_d = ("日時", "日付", "開始", "開始日時", "Date")
+        date_key = next((p for p in prefer_d if p in date_keys), date_keys[0])
+
+    excluded = {title_key, date_key}
+    rich_keys = [
+        k for k, v in properties.items() if v.get("type") == "rich_text" and k not in excluded
+    ]
+    if content_o:
+        if content_o not in properties or properties[content_o].get("type") != "rich_text":
+            raise ValueError(
+                f"NOTION_MINUTES_CONTENT_PROP={content_o!r} が DB に無いか、rich_text 型ではありません"
+            )
+        content_key = content_o
+    else:
+        if not rich_keys:
+            raise ValueError(
+                "rich_text 型のプロパティがありません（本文用のテキスト列を追加してください）"
+            )
+        prefer_c = ("内容", "本文", "記録", "議事", "メモ", "Body", "Notes")
+        content_key = next((p for p in prefer_c if p in rich_keys), rich_keys[0])
+
+    raw_key = _resolve_raw_prop_notion(properties, content_key, title_key, date_key)
+
+    return {
+        "title_prop": title_key,
+        "datetime_prop": date_key,
+        "content_prop": content_key,
+        "raw_prop": raw_key,
+    }
+
+
+_minutes_schema_lock = threading.Lock()
+_minutes_schema_cache: dict = {"ts": 0.0, "db_id": "", "schema": None}
+
+
+def _get_minutes_schema(*, force_refresh: bool = False) -> dict:
+    """
+    議事録 DB のプロパティ名を解決する。
+    既定: Notion API で DB メタデータを取得して型に応じて自動割当。
+    """
+    if not _minutes_db_configured():
+        raise RuntimeError("NOTION_DB_MINUTES が未設定です")
+
+    db_id = DB["Minutes"].strip()
+
+    if not KAGE_MINUTES_SCHEMA_AUTO:
+        return {**_minutes_schema_manual(), "source": "env_fallback"}
+
+    now = time.time()
+    with _minutes_schema_lock:
+        cached = _minutes_schema_cache.get("schema")
+        if (
+            not force_refresh
+            and cached
+            and _minutes_schema_cache.get("db_id") == db_id
+            and (now - float(_minutes_schema_cache.get("ts") or 0)) < MINUTES_SCHEMA_CACHE_SEC
+        ):
+            return cached
+
+    if not API_KEY:
+        sch = {**_minutes_schema_manual(), "source": "env_fallback_no_api_key"}
+        with _minutes_schema_lock:
+            _minutes_schema_cache.update(ts=now, db_id=db_id, schema=sch)
+        return sch
+
+    try:
+        data = _notion_get(f"/databases/{db_id}")
+    except HTTPException as e:
+        logger.warning("[minutes] schema GET failed, using env fallback: %s", e.detail)
+        sch = {**_minutes_schema_manual(), "source": "env_fallback_api_error"}
+        with _minutes_schema_lock:
+            _minutes_schema_cache.update(ts=now, db_id=db_id, schema=sch)
+        return sch
+
+    props = data.get("properties") or {}
+    try:
+        base = _minutes_schema_from_properties(props)
+        base["source"] = "notion_api"
+        sch = base
+    except ValueError as ex:
+        raise HTTPException(
+            status_code=503,
+            detail=f"議事録DBのスキーマを自動解釈できません: {ex}",
+        ) from ex
+
+    with _minutes_schema_lock:
+        _minutes_schema_cache.update(ts=now, db_id=db_id, schema=sch)
+    logger.info(
+        "[minutes] schema: title=%r date=%r content=%r raw=%r (%s)",
+        sch["title_prop"],
+        sch["datetime_prop"],
+        sch["content_prop"],
+        sch.get("raw_prop"),
+        sch.get("source"),
+    )
+    return sch
+
+
+def _minutes_title_prop(text: str, schema: Optional[dict] = None) -> dict:
+    sch = schema if schema is not None else _get_minutes_schema()
+    key = sch["title_prop"]
+    return {key: {"title": [{"text": {"content": (text or "")[:200]}}]}}
+
+
 def _iso_now_sleep() -> str:
     try:
         tz = ZoneInfo(KAGE_TZ)
@@ -684,27 +867,30 @@ def _normalize_minutes_when(raw: str) -> str:
 
 
 def _minutes_page_properties(title: str, when_iso: str, content: str) -> dict:
-    props = {**_minutes_title_prop(title)}
-    props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
+    sch = _get_minutes_schema()
+    props = {**_minutes_title_prop(title, sch)}
+    props.update(_date_prop(sch["datetime_prop"], when_iso))
     body = (content or "").strip() or " "
-    props.update(_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, body))
+    props.update(_rich_text_prop_chunked(sch["content_prop"], body))
     return props
 
 
-def _minutes_body_props(summary_text: str, raw_stored: Optional[str]) -> dict:
-    """要約を「内容」に。原文は NOTION_MINUTES_RAW_PROP があれば別列、なければ内容に結合。"""
+def _minutes_body_props(summary_text: str, raw_stored: Optional[str], schema: Optional[dict] = None) -> dict:
+    """要約を本文列へ。原文列が解決されていれば別プロパティへ、なければ本文に結合。"""
+    sch = schema if schema is not None else _get_minutes_schema()
+    ck = sch["content_prop"]
     summ = (summary_text or "").strip() or " "
     raw = (raw_stored or "").strip()
-    raw_key = NOTION_MINUTES_RAW_PROP
+    raw_key = sch.get("raw_prop")
     if raw and raw_key:
         return {
-            **_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, summ),
+            **_rich_text_prop_chunked(ck, summ),
             **_rich_text_prop_chunked(raw_key, raw),
         }
     if raw:
         merged = f"## 要約\n\n{summ}\n\n---\n\n## 原文（未加工）\n\n{raw}"
-        return _rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, merged)
-    return _rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, summ)
+        return _rich_text_prop_chunked(ck, merged)
+    return _rich_text_prop_chunked(ck, summ)
 
 
 def _gemini_summarize_meeting_minutes(raw: str, title_hint: str) -> tuple[str, str]:
@@ -800,9 +986,10 @@ def _save_minutes_to_notion(
         except Exception as e:
             logger.warning("[minutes] Gemini summarize failed, saving raw only: %s", e)
 
-    props = {**_minutes_title_prop(out_title)}
-    props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
-    props.update(_minutes_body_props(summary_body, raw_full if summarized else None))
+    sch = _get_minutes_schema()
+    props = {**_minutes_title_prop(out_title, sch)}
+    props.update(_date_prop(sch["datetime_prop"], when_iso))
+    props.update(_minutes_body_props(summary_body, raw_full if summarized else None, sch))
 
     try:
         _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
@@ -810,12 +997,12 @@ def _save_minutes_to_notion(
         # 「原文」列が無い・名前不一致など: 要約+原文を「内容」だけにまとめて再試行
         if summarized and raw_full:
             logger.warning("[minutes] retry with merged 内容 (separate raw property may be missing)")
-            props = {**_minutes_title_prop(out_title)}
-            props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
+            props = {**_minutes_title_prop(out_title, sch)}
+            props.update(_date_prop(sch["datetime_prop"], when_iso))
             merged = (
                 f"## 要約\n\n{summary_body}\n\n---\n\n## 原文（未加工）\n\n{raw_full}"
             )
-            props.update(_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, merged))
+            props.update(_rich_text_prop_chunked(sch["content_prop"], merged))
             _notion_post("/pages", {"parent": {"database_id": DB["Minutes"].strip()}, "properties": props})
         else:
             raise
@@ -1587,6 +1774,30 @@ class KageNotionSyncBody(BaseModel):
 # エンドポイント
 # ---------------------------------------------------------------------------
 
+
+def _minutes_health_schema_fields() -> dict:
+    """/health 用: 議事録 DB の解決済み列名（Notion からの自動インポート結果）"""
+    out: dict = {
+        "minutes_schema_auto": KAGE_MINUTES_SCHEMA_AUTO,
+        "minutes_schema_source": None,
+        "minutes_resolved": None,
+    }
+    if not _minutes_db_configured() or not API_KEY:
+        return out
+    try:
+        ms = _get_minutes_schema()
+        out["minutes_schema_source"] = ms.get("source")
+        out["minutes_resolved"] = {
+            "title": ms["title_prop"],
+            "datetime": ms["datetime_prop"],
+            "content": ms["content_prop"],
+            "raw": ms.get("raw_prop"),
+        }
+    except Exception as e:
+        out["minutes_schema_error"] = str(e)[:400]
+    return out
+
+
 @app.get("/")
 def root():
     return {"status": "ok", "service": "Notion Secretary API"}
@@ -1607,8 +1818,7 @@ def health():
         "current_model": GEMINI_MODEL,
         "sleep_db_configured": _sleep_db_configured(),
         "minutes_db_configured": _minutes_db_configured(),
-        "minutes_title_prop": NOTION_MINUTES_TITLE_PROP,
-        "minutes_content_prop": NOTION_MINUTES_CONTENT_PROP,
+        **_minutes_health_schema_fields(),
         "kage_public_url": KAGE_PUBLIC_URL or None,
     }
 
@@ -1893,6 +2103,8 @@ def add_minutes(req: MinutesRequest):
         else:
             msg = f"議事録を保存しました: {t}"
         return {"message": msg, "saved": True, "title": t, "summarized": bool(meta.get("summarized"))}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("[minutes] save failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -2557,18 +2769,23 @@ def _fetch_brain() -> dict:
         if not _minutes_db_configured():
             return []
         try:
+            sch = _get_minutes_schema()
+        except Exception as e:
+            logger.error("[brain] minutes schema: %s", e)
+            return []
+        try:
             data = _notion_post(f"/databases/{DB['Minutes'].strip()}/query", {
                 "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
                 "page_size": 14,
             })
             out = []
             for row in data.get("results", []):
-                tit = (row["properties"].get(NOTION_MINUTES_TITLE_PROP) or {}).get("title") or []
+                tit = (row["properties"].get(sch["title_prop"]) or {}).get("title") or []
                 name = tit[0]["plain_text"] if tit else "(無題)"
                 when = (
-                    (row["properties"].get(NOTION_MINUTES_DATETIME_PROP, {}).get("date") or {}).get("start", "")
+                    (row["properties"].get(sch["datetime_prop"], {}).get("date") or {}).get("start", "")
                 )
-                rt = row["properties"].get(NOTION_MINUTES_CONTENT_PROP, {}).get("rich_text", [])
+                rt = row["properties"].get(sch["content_prop"], {}).get("rich_text", [])
                 body = "".join((b.get("plain_text") or "") for b in rt) if rt else ""
                 snip = (body or "")[:900]
                 if len(body or "") > 900:
@@ -2846,6 +3063,13 @@ def chat(req: ChatRequest):
             else:
                 msg = f"議事録に保存しました: {t_saved}\n日時: {when_disp}"
             return _respond({"intent": "minutes", "message": msg, "saved": True})
+        except HTTPException as e:
+            logger.error("[chat minutes] HTTP %s: %s", e.status_code, e.detail)
+            return _respond({
+                "intent": "minutes",
+                "message": f"議事録の保存に失敗しました: {e.detail}",
+                "saved": False,
+            })
         except Exception as e:
             logger.error("[chat minutes] %s", e)
             return _respond({

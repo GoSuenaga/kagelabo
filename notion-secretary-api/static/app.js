@@ -125,7 +125,7 @@ function showWelcome() {
           <p class="welcome-details-lead">影が Notion の管理をサポートいたします。</p>
           <ul class="welcome-hint-list">
             <li>📝 メモ・💡 アイデア → 保存</li>
-            <li>📋 議事録 → Notion に蓄積。長文は自動で要約し原文も保存（数十秒かかることがあります）</li>
+            <li>📋 議事録 → Notion に蓄積。DBの列はサーバがNotionから自動認識（型さえ合っていれば列名は日本語でも可）。長文は要約＋原文保存可</li>
             <li>📅 予定ボタン → 日時つきで保存</li>
             <li>🧠 整理ボタン → タスクを整理</li>
             <li>🐛 バグボタン → 不具合を Notion に記録</li>
