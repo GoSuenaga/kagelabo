@@ -151,6 +151,23 @@
 - `clients/`, `output/`, `.env` はサンドボックスに存在しない。これらを前提としたコードは書けるが、テスト実行はできない。
 - ローカルファイルパスを直接 Creatomate に渡しているわけではない。`upload()` 関数で fal.ai ストレージに一時アップロードし、URL 経由で渡している。
 
+## アプリカタログ（成果物アーカイブ）
+
+新しいアプリやダッシュボードを作ったら、ここに追記すること。
+
+| # | アプリ名 | ver | 種別 | 起動方法 | URL / パス | メモ |
+|---|---------|-----|------|---------|-----------|------|
+| 1 | **KAGE（影秘書）** | v0.164 | Web API | `uvicorn app:app` | [Railway](https://notion-secretary-api-production.up.railway.app/app) | Notion 連携チャット秘書。デプロイ済み |
+| 2 | **Vlog 動画生成 UI** | v1 | Streamlit | `cd apps/vantan-video && streamlit run vlog_app.py` | localhost:8501 | Vlog 風広告の生成 UI（DRY_RUN 対応） |
+| 3 | **絵コンテダッシュボード** | v1 | 静的 HTML | `python3 generate_dashboard.py && open dashboard.html` | `dashboard.html`（ローカル） | workflow_002 全16パターンの台本プレビュー |
+| 4 | **QC ギャラリー** | v1 | FastAPI | `cd apps/rag-images && python3 app.py` | localhost:8000 | 広告クリエイティブの QC レビュー + Imagen 生成 |
+| 5 | **生成管理アプリ** | — | Streamlit | （作成中） | — | 全パターン一括生成・進捗管理・停止/再生成 |
+
+### 更新ルール
+- 新しいアプリを作ったら行を追加
+- バージョンアップしたら ver を更新し、メモに変更内容を追記
+- 廃止したアプリは行を残して ~~取り消し線~~ にする
+
 ## 再開手順
 
 1. リポジトリルートで `README.md` と本ファイルを確認
