@@ -8,12 +8,14 @@ import logging
 import os
 import random
 import re
+import unicodedata
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Optional
 
@@ -541,6 +543,7 @@ OPENING_LINE_SYSTEM_PROMPT = f"""\
 - **必ず完結した日本語にする**。体言止め・語の途中・固有名詞だけで終わることは禁止
 - **最後の文字は「。」「！」「？」のいずれか**（省略記号だけで終わらない）
 - 長さは**だいたい70〜130字**（上限**140字まで**）。短すぎて物足りない一言だけは避ける
+- **1文が長くなりすぎないよう**、要点のあとに「。」で区切る（読点「、」だけで最後までつながない）
 
 その他:
 - 「〜しろ」「〜やれ」等の命令口調は禁止
@@ -645,6 +648,214 @@ def _rich_text_prop_chunked(key: str, text: str, max_utf16: Optional[int] = None
 
 def _date_prop(key: str, date_str: str) -> dict:
     return {key: {"date": {"start": date_str}}}
+
+
+# ---------------------------------------------------------------------------
+# Schedule: 重複候補の検出とマージ（秘書として登録前に照会）
+# ---------------------------------------------------------------------------
+
+SCHEDULE_DUP_SIMILARITY_MIN = float(os.environ.get("KAGE_SCHEDULE_DUP_MIN_SCORE", "0.52"))
+SCHEDULE_DUP_MAX_CANDIDATES = int(os.environ.get("KAGE_SCHEDULE_DUP_MAX", "8"))
+
+
+def _normalize_schedule_title_key(s: str) -> str:
+    t = unicodedata.normalize("NFKC", (s or "").strip().lower())
+    out = []
+    for ch in t:
+        if ch in " 　\t\n\r・•*＊":
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def _schedule_title_similarity(a: str, b: str) -> float:
+    na, nb = _normalize_schedule_title_key(a), _normalize_schedule_title_key(b)
+    if not na or not nb:
+        return 0.0
+    if na == nb:
+        return 1.0
+    if na in nb or nb in na:
+        return 0.9
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def _schedule_row_from_notion_page(row: dict) -> Optional[dict]:
+    try:
+        pid = row.get("id")
+        title = row["properties"]["名前"]["title"]
+        name = title[0]["plain_text"] if title else "(無題)"
+        date_prop = row["properties"].get("日付", {}).get("date", {})
+        d = (date_prop.get("start", "") or "")[:10] if date_prop else ""
+        memo_rt = row["properties"].get("メモ", {}).get("rich_text", [])
+        memo = "".join((b.get("plain_text") or "") for b in memo_rt) if memo_rt else ""
+        return {"page_id": pid, "title": name, "memo": memo, "date": d}
+    except Exception:
+        return None
+
+
+def _schedule_fetch_rows_for_date(date_s: str) -> list[dict]:
+    """指定日（YYYY-MM-DD）の予定行を取得"""
+    if not API_KEY or not (DB.get("Schedule") or "").strip():
+        return []
+    try:
+        data = _notion_post(f"/databases/{DB['Schedule']}/query", {
+            "filter": {"and": [
+                {"property": "日付", "date": {"on_or_after": date_s}},
+                {"property": "日付", "date": {"on_or_before": date_s}},
+            ]},
+            "page_size": 100,
+        })
+    except Exception as e:
+        logger.warning("[schedule_dup] query failed for %s: %s", date_s, e)
+        return []
+    out: list[dict] = []
+    for row in data.get("results", []):
+        parsed = _schedule_row_from_notion_page(row)
+        if parsed:
+            out.append(parsed)
+    return out
+
+
+def _schedule_duplicate_candidates(proposed_title: str, date_s: str) -> list[dict]:
+    rows = _schedule_fetch_rows_for_date(date_s)
+    scored: list[dict] = []
+    for r in rows:
+        sc = _schedule_title_similarity(proposed_title, r["title"])
+        if sc >= SCHEDULE_DUP_SIMILARITY_MIN:
+            item = {**r, "similarity": round(sc, 2)}
+            scored.append(item)
+    scored.sort(key=lambda x: (-x["similarity"], x["title"]))
+    return scored[:SCHEDULE_DUP_MAX_CANDIDATES]
+
+
+def _merge_schedule_texts(old_title: str, old_memo: str, new_title: str, new_memo: str) -> tuple[str, str]:
+    """既存行と今回の入力をマージ（情報欠落を避ける）"""
+    ot, nt = (old_title or "").strip(), (new_title or "").strip()
+    om, nm = (old_memo or "").strip(), (new_memo or "").strip()
+    no, nn = _normalize_schedule_title_key(ot), _normalize_schedule_title_key(nt)
+    if no == nn:
+        final_title = nt if len(nt) >= len(ot) else ot
+    elif no in nn or nn in no:
+        final_title = ot if len(ot) >= len(nt) else nt
+    else:
+        if ot == nt:
+            final_title = ot
+        else:
+            final_title = f"{ot} ／ {nt}"[:200]
+    if om and nm:
+        if nm in om:
+            final_memo = om
+        elif om in nm:
+            final_memo = nm
+        else:
+            final_memo = om + "\n\n── 追記 ──\n" + nm
+    else:
+        final_memo = om or nm
+    return final_title[:200], final_memo
+
+
+def _get_schedule_page_snapshot(page_id: str) -> dict:
+    """PATCH 用に既存プロパティを取得"""
+    page = _notion_get(f"/pages/{page_id}")
+    props = page.get("properties", {})
+    title_rt = props.get("名前", {}).get("title", [])
+    name = title_rt[0]["plain_text"] if title_rt else ""
+    memo_rt = props.get("メモ", {}).get("rich_text", [])
+    memo = "".join((b.get("plain_text") or "") for b in memo_rt) if memo_rt else ""
+    date_prop = props.get("日付", {}).get("date", {})
+    d = (date_prop.get("start", "") or "")[:10] if date_prop else ""
+    return {"title": name, "memo": memo, "date": d}
+
+
+def _notion_insert_schedule_page(title: str, date_s: str, memo: str) -> None:
+    props: dict = {**_title_prop(title[:200]), **_date_prop("日付", date_s)}
+    if memo:
+        props.update(_rich_text_prop_chunked("メモ", memo))
+    _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
+
+
+def _schedule_handle_request(
+    title: str,
+    date_s: str,
+    memo: str = "",
+    *,
+    confirm_not_duplicate: bool = False,
+    merge_into_page_id: Optional[str] = None,
+) -> dict:
+    """
+    予定1件の解決。重複候補ありかつ未解決なら need_schedule_confirmation を立てる。
+    """
+    title = (title or "").strip()[:200]
+    date_s = (date_s or "").strip()[:32]
+    memo = (memo or "").strip()
+    if not title or not date_s:
+        return {
+            "saved": False,
+            "message": "タイトルと日付が必要です。",
+            "need_schedule_confirmation": False,
+        }
+    if not API_KEY or not (DB.get("Schedule") or "").strip():
+        return {
+            "saved": False,
+            "message": "Notion（予定DB）が未設定のため保存できません。",
+            "need_schedule_confirmation": False,
+        }
+
+    merge_into_page_id = (merge_into_page_id or "").strip() or None
+
+    try:
+        if merge_into_page_id:
+            snap = _get_schedule_page_snapshot(merge_into_page_id)
+            mt, mm = _merge_schedule_texts(snap["title"], snap["memo"], title, memo)
+            props: dict = {**_title_prop(mt[:200]), **_date_prop("日付", date_s)}
+            if mm:
+                props.update(_rich_text_prop_chunked("メモ", mm))
+            _notion_patch(f"/pages/{merge_into_page_id}", {"properties": props})
+            return {
+                "saved": True,
+                "message": f"既存の予定に内容をまとめました: {mt}（{date_s}）",
+                "need_schedule_confirmation": False,
+            }
+
+        if confirm_not_duplicate:
+            _notion_insert_schedule_page(title, date_s, memo)
+            return {
+                "saved": True,
+                "message": f"予定を新規に登録しました: {title}（{date_s}）",
+                "need_schedule_confirmation": False,
+            }
+
+        cands = _schedule_duplicate_candidates(title, date_s)
+        if cands:
+            return {
+                "saved": False,
+                "message": (
+                    "同じ日付に、内容が近い予定がすでにあります。"
+                    "念のためご確認ください。この予定は重複していませんか？"
+                ),
+                "need_schedule_confirmation": True,
+                "schedule_candidates": [
+                    {"page_id": c["page_id"], "title": c["title"], "memo": c.get("memo") or "", "similarity": c["similarity"]}
+                    for c in cands
+                ],
+                "schedule_proposed": {"title": title, "date": date_s, "memo": memo},
+            }
+
+        _notion_insert_schedule_page(title, date_s, memo)
+        return {
+            "saved": True,
+            "message": f"予定を登録しました: {title}（{date_s}）",
+            "need_schedule_confirmation": False,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[schedule] save failed: %s", e)
+        return {
+            "saved": False,
+            "message": f"Notion への保存に失敗しました: {title}",
+            "need_schedule_confirmation": False,
+        }
 
 
 def _number_prop(key: str, val: float) -> dict:
@@ -1767,6 +1978,9 @@ class ScheduleRequest(BaseModel):
     title: str
     date: str  # YYYY-MM-DD
     memo: str = ""
+    # 重複確認フロー: True なら候補があっても新規作成 / 指定IDへマージ
+    confirm_not_duplicate: bool = False
+    merge_into_page_id: Optional[str] = None
 
 class IdeaRequest(BaseModel):
     title: str
@@ -2083,12 +2297,15 @@ def set_model(model_id: str):
 
 @app.post("/schedule")
 def add_schedule(req: ScheduleRequest):
-    """予定をScheduleDBに追加"""
-    props = {**_title_prop(req.title[:200]), **_date_prop("日付", req.date)}
-    if req.memo:
-        props.update(_rich_text_prop_chunked("メモ", req.memo))
-    _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
-    return {"message": f"予定を追加しました: {req.title} ({req.date})"}
+    """予定を Schedule DB に追加。重複候補時は need_schedule_confirmation で返す。"""
+    out = _schedule_handle_request(
+        req.title,
+        req.date,
+        req.memo or "",
+        confirm_not_duplicate=bool(req.confirm_not_duplicate),
+        merge_into_page_id=req.merge_into_page_id,
+    )
+    return out
 
 
 @app.post("/idea")
@@ -3031,7 +3248,7 @@ def chat(req: ChatRequest):
         skip_learn = (
             "profile", "debug", "task", "minutes", "sleep_bedtime", "sleep_wake", "health_go", "health_back",
         )
-        if intent not in skip_learn and GEMINI_API_KEY:
+        if intent not in skip_learn and not resp.get("need_schedule_confirmation") and GEMINI_API_KEY:
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
         return resp
 
@@ -3146,12 +3363,30 @@ def chat(req: ChatRequest):
         title = ((classified.get("title") or text[:20]).strip() or "予定")[:200]
         d = classified.get("date") or _local_today().isoformat()
         memo = classified.get("memo") or classified.get("content") or ""
-        props = {**_title_prop(title), **_date_prop("日付", d)}
-        if memo:
-            props.update(_rich_text_prop_chunked("メモ", memo))
         try:
-            _notion_post("/pages", {"parent": {"database_id": DB["Schedule"]}, "properties": props})
-            return _respond({"intent": "schedule", "message": f"予定を保存しました: {title} ({d})", "saved": True})
+            out = _schedule_handle_request(title, d, memo)
+            if out.get("need_schedule_confirmation"):
+                return _respond({
+                    "intent": "schedule",
+                    "message": out.get("message", ""),
+                    "saved": False,
+                    "need_schedule_confirmation": True,
+                    "schedule_candidates": out.get("schedule_candidates") or [],
+                    "schedule_proposed": out.get("schedule_proposed") or {},
+                })
+            if out.get("saved"):
+                return _respond({
+                    "intent": "schedule",
+                    "message": out.get("message", f"予定を保存しました: {title} ({d})"),
+                    "saved": True,
+                })
+            return _respond({
+                "intent": "schedule",
+                "message": out.get("message", f"Notion保存に失敗しました: {title}"),
+                "saved": False,
+            })
+        except HTTPException:
+            raise
         except Exception:
             return _respond({"intent": "schedule", "message": f"Notion保存に失敗しました: {title}", "saved": False})
 
@@ -3488,41 +3723,80 @@ def api_news_digest(
 # ---------------------------------------------------------------------------
 
 OPENING_LINE_MAX_CHARS = 140
+# 整形で締めの一文を足す場合の上限（「…」で切らずに回収するため）
+OPENING_LINE_HARD_MAX_CHARS = 200
 
 
-def _finalize_opening_line(raw: str, max_chars: int = OPENING_LINE_MAX_CHARS) -> str:
+def _finalize_opening_line(
+    raw: str,
+    max_chars: int = OPENING_LINE_MAX_CHARS,
+    hard_max: int = OPENING_LINE_HARD_MAX_CHARS,
+) -> str:
     """
-    改行除去・接頭辞除去のうえ、140字超は最後の句点まで戻して途切れ感を減らす。
+    改行除去・接頭辞除去のうえ、上限超は最後の句点まで戻す。
+    句点が無い長文は読点＋締め文で完結させ、省略記号や「や」での中途半端終端を避ける。
     """
+    _CLOSE = " 本日もよろしくお願いいたします。"
+
+    def _last_sentence_end(s: str, limit: int) -> int:
+        """s[:limit] 内で最後に現れる 。！？ のインデックス（無ければ -1）"""
+        chunk = s[:limit]
+        best = -1
+        for sep in ("。", "！", "？"):
+            j = chunk.rfind(sep)
+            if j > best:
+                best = j
+        return best
+
     line = (raw or "").strip()
     line = " ".join(line.split())
     for prefix in ("影:", "影：", "影 ", "KAGE:", "KAGE："):
         if line.lower().startswith(prefix.lower()):
             line = line[len(prefix) :].strip()
+    # フロントに「影」キッカーがあるため、「影本日は…」のような重複語頭を落とす
+    if len(line) >= 2 and line[0] == "影" and line[1] not in "：:　 \t":
+        line = line[1:].lstrip("　 \t").strip()
+    while line.endswith("…"):
+        line = line[:-1].rstrip()
+    while line.endswith("..."):
+        line = line[:-3].rstrip()
     if not line:
         return line
+
     if len(line) > max_chars:
         chunk = line[:max_chars]
-        best = -1
-        for sep in ("。", "！", "？", "…"):
-            j = chunk.rfind(sep)
-            if j > best:
-                best = j
-        if best >= 24:
-            return chunk[: best + 1]
-        return chunk.rstrip("、，, ") + "…"
-    if len(line) >= 10 and line[-1] not in "。！？…":
-        best = -1
-        for sep in ("。", "！", "？"):
-            j = line.rfind(sep)
-            if j > best:
-                best = j
-        # 「…。途中で切れた英単語・固有名詞」だけが残っている場合は前の句点まで戻す
-        if best >= 4:
-            line = line[: best + 1]
-        else:
-            line = line + "…"
-    return line
+        j = _last_sentence_end(line, max_chars)
+        if j >= 0:
+            return line[: j + 1]
+        comma = chunk.rfind("、")
+        if comma >= 20:
+            merged = chunk[: comma + 1] + _CLOSE
+            return merged if len(merged) <= hard_max else merged[:hard_max]
+        merged = chunk.rstrip("、，, ") + _CLOSE
+        return merged if len(merged) <= hard_max else merged[:hard_max]
+
+    if line[-1] in "。！？":
+        if len(line) <= hard_max:
+            return line
+        j2 = _last_sentence_end(line, hard_max)
+        if j2 >= 0:
+            return line[: j2 + 1]
+        return line[:hard_max]
+
+    j = _last_sentence_end(line, len(line))
+    if j >= 4:
+        line = line[: j + 1]
+        return line[:hard_max]
+
+    comma = line.rfind("、")
+    if comma >= 18:
+        merged = line[: comma + 1] + _CLOSE
+        return merged if len(merged) <= hard_max else merged[:hard_max]
+
+    line = line.rstrip("、，, ")
+    if line and line[-1] not in "。！？":
+        line = line + "。"
+    return line[:hard_max]
 
 
 def _brain_slice_for_opening(brain: dict) -> dict:

@@ -196,8 +196,64 @@ const BADGE = {
   news_feedback:'📰 ニュース好み',
 };
 
+function scheduleDupEncode(obj) {
+  return btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+}
+function scheduleDupDecode(b64) {
+  return JSON.parse(decodeURIComponent(escape(atob(b64))));
+}
+
+/** 予定の重複確認（チャット・予定モーダル共通） */
+function renderScheduleDupConfirm(data) {
+  const prop = data.schedule_proposed || {};
+  const cands = data.schedule_candidates || [];
+  const pb = scheduleDupEncode(prop);
+  const cb = scheduleDupEncode(cands);
+  let list = '<ul class="sched-dup-list">';
+  cands.forEach(c => {
+    const pct = Math.round((Number(c.similarity) || 0) * 100);
+    const snip =
+      c.memo && c.memo.length
+        ? '<br><span class="sched-dup-memo">' +
+          esc(c.memo.length > 140 ? c.memo.slice(0, 140) + '…' : c.memo) +
+          '</span>'
+        : '';
+    list +=
+      '<li><strong>' +
+      esc(c.title || '') +
+      '</strong> <span class="sched-dup-sim">（類似 ' +
+      pct +
+      '%）</span>' +
+      snip +
+      '</li>';
+  });
+  list += '</ul>';
+  const html =
+    '<div class="schedule-dup-wrap">' +
+    (BADGE.schedule ? '<span class="badge-intent">' + BADGE.schedule + '</span><br>' : '') +
+    esc(data.message || 'この予定は重複していませんか？') +
+    list +
+    '<p class="sched-dup-hint">秘書として、登録前に念のためお伺いしています。</p>' +
+    '<div class="confirm-row schedule-dup-actions">' +
+    '<button type="button" class="cfm-btn" data-sched-dup="merge" data-proposed-b64="' +
+    esc(pb) +
+    '" data-cands-b64="' +
+    esc(cb) +
+    '">重複している（まとめる）</button>' +
+    '<button type="button" class="cfm-btn cfm-btn-secondary" data-sched-dup="new" data-proposed-b64="' +
+    esc(pb) +
+    '">重複していない（新規）</button>' +
+    '</div></div>';
+  addMsg('kage', html, 'warn');
+}
+
 function renderResponse(data, originalText) {
   const { intent, message, saved } = data;
+
+  if (data.need_schedule_confirmation && data.schedule_candidates && data.schedule_proposed) {
+    renderScheduleDupConfirm(data);
+    return;
+  }
 
   if (intent === 'task') {
     const b = BADGE.task ? `<span class="badge-intent">${BADGE.task}</span><br>` : '';
@@ -507,6 +563,138 @@ async function handleCleanup() {
 
 // ── Confirm bubble buttons ────────────────────────
 chatArea.addEventListener('click', async e => {
+  const mergePick = e.target.closest('[data-sched-merge-pick]');
+  if (mergePick) {
+    e.preventDefault();
+    let proposed;
+    try {
+      proposed = scheduleDupDecode(mergePick.dataset.proposedB64);
+    } catch (err) {
+      addMsg('kage', 'データの読み取りに失敗しました。もう一度予定から登録してください。', 'error');
+      return;
+    }
+    const pageId = mergePick.dataset.pageId;
+    if (!pageId || !proposed) return;
+    mergePick.closest('.schedule-dup-actions')?.querySelectorAll('button').forEach(b => (b.disabled = true));
+    showTyping();
+    try {
+      const data = await post('/schedule', {
+        title: proposed.title,
+        date: proposed.date,
+        memo: proposed.memo || '',
+        merge_into_page_id: pageId,
+      });
+      hideTyping();
+      if (data.saved) {
+        addMsg(
+          'kage',
+          `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || '既存の予定にまとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+          'saved'
+        );
+      } else {
+        addMsg('kage', esc(data.message || 'まとめに失敗しました。'), 'error');
+      }
+    } catch (err) {
+      hideTyping();
+      addMsg('kage', 'ボス、通信エラーでまとめられませんでした。', 'error');
+    }
+    return;
+  }
+
+  const schedDup = e.target.closest('[data-sched-dup]');
+  if (schedDup) {
+    e.preventDefault();
+    let proposed;
+    let cands = [];
+    try {
+      proposed = scheduleDupDecode(schedDup.dataset.proposedB64);
+      if (schedDup.dataset.candsB64) cands = scheduleDupDecode(schedDup.dataset.candsB64);
+    } catch (err) {
+      addMsg('kage', 'データの読み取りに失敗しました。', 'error');
+      return;
+    }
+    const act = schedDup.dataset.schedDup;
+    const actions = schedDup.closest('.schedule-dup-actions');
+    actions?.querySelectorAll('button').forEach(b => (b.disabled = true));
+    if (act === 'new') {
+      showTyping();
+      try {
+        const data = await post('/schedule', {
+          title: proposed.title,
+          date: proposed.date,
+          memo: proposed.memo || '',
+          confirm_not_duplicate: true,
+        });
+        hideTyping();
+        if (data.saved) {
+          addMsg(
+            'kage',
+            `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || '新規に登録しました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+            'saved'
+          );
+        } else {
+          addMsg('kage', esc(data.message || '保存に失敗しました。'), 'error');
+        }
+      } catch (err) {
+        hideTyping();
+        addMsg('kage', 'ボス、通信エラーです。', 'error');
+      }
+      return;
+    }
+    if (act === 'merge') {
+      if (!cands.length) {
+        addMsg('kage', '候補が見つかりませんでした。', 'error');
+        return;
+      }
+      if (cands.length === 1) {
+        showTyping();
+        try {
+          const data = await post('/schedule', {
+            title: proposed.title,
+            date: proposed.date,
+            memo: proposed.memo || '',
+            merge_into_page_id: cands[0].page_id,
+          });
+          hideTyping();
+          if (data.saved) {
+            addMsg(
+              'kage',
+              `📅 <strong>${esc(proposed.title)}</strong><br>${fmtDate(proposed.date)}<br>${esc(data.message || 'まとめました。')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+              'saved'
+            );
+          } else {
+            addMsg('kage', esc(data.message || 'まとめに失敗しました。'), 'error');
+          }
+        } catch (err) {
+          hideTyping();
+          addMsg('kage', 'ボス、通信エラーです。', 'error');
+        }
+        return;
+      }
+      const wrap = schedDup.closest('.schedule-dup-wrap');
+      const row = wrap?.querySelector('.schedule-dup-actions');
+      if (!row) return;
+      const pb = scheduleDupEncode(proposed);
+      row.innerHTML =
+        '<p class="sched-dup-hint">どの予定にまとめますか？（タイトルをタップ）</p><div class="confirm-row" style="flex-direction:column;gap:6px;margin-top:8px">' +
+        cands
+          .map(
+            c =>
+              '<button type="button" class="cfm-btn" data-sched-merge-pick data-page-id="' +
+              esc(c.page_id) +
+              '" data-proposed-b64="' +
+              esc(pb) +
+              '" style="text-align:left">' +
+              esc(c.title) +
+              '</button>'
+          )
+          .join('') +
+        '</div>';
+      return;
+    }
+    return;
+  }
+
   const btn = e.target.closest('[data-confirm]');
   if (!btn) return;
   const act  = btn.dataset.confirm;
@@ -552,9 +740,19 @@ async function saveSched() {
   addUser(`予定: ${title}（${date}）${memo?' — '+memo:''}`);
   showTyping();
   try {
-    await post('/schedule',{title,date,memo});
+    const data = await post('/schedule', { title, date, memo });
     hideTyping();
-    addMsg('kage',`📅 <strong>${esc(title)}</strong><br>${fmtDate(date)}<br><span class="badge-save">✓ Notion保存済み</span>`,'saved');
+    if (data.need_schedule_confirmation && data.schedule_candidates && data.schedule_proposed) {
+      renderScheduleDupConfirm(data);
+    } else if (data.saved) {
+      addMsg(
+        'kage',
+        `📅 <strong>${esc(title)}</strong><br>${fmtDate(date)}<br>${esc(data.message || '')}<br><span class="badge-save">✓ Notion保存済み</span>`,
+        'saved'
+      );
+    } else {
+      addMsg('kage', esc(data.message || '保存できませんでした。'), 'error');
+    }
   } catch(e) {
     hideTyping(); addMsg('kage',`ボス、保存に失敗しました。`,'error');
   } finally { modalSave.disabled = false; }
