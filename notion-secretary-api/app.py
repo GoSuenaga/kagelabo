@@ -61,6 +61,8 @@ DB = {
 }
 
 # 議事録 DB のプロパティ名（Notion スキーマと一致させる）
+# タイトル型の列（create_minutes_database.py 既定は「名前」）。DB で「内容」がタイトル型なら NOTION_MINUTES_TITLE_PROP=内容 など
+NOTION_MINUTES_TITLE_PROP = os.environ.get("NOTION_MINUTES_TITLE_PROP", "名前").strip() or "名前"
 NOTION_MINUTES_DATETIME_PROP = os.environ.get("NOTION_MINUTES_DATETIME_PROP", "日時").strip() or "日時"
 NOTION_MINUTES_CONTENT_PROP = os.environ.get("NOTION_MINUTES_CONTENT_PROP", "内容").strip() or "内容"
 # 空なら要約+原文を「内容」1列にまとめる。別列に生テキストを分けたいときだけ「原文」等を指定
@@ -582,6 +584,12 @@ def _title_prop(text: str) -> dict:
     return {"名前": {"title": [{"text": {"content": text}}]}}
 
 
+def _minutes_title_prop(text: str) -> dict:
+    """議事録 DB のタイトル型プロパティ（NOTION_MINUTES_TITLE_PROP）へ"""
+    key = NOTION_MINUTES_TITLE_PROP
+    return {key: {"title": [{"text": {"content": (text or "")[:200]}}]}}
+
+
 def _rich_text_prop(key: str, text: str) -> dict:
     return {key: {"rich_text": [{"text": {"content": text}}]}}
 
@@ -675,7 +683,7 @@ def _normalize_minutes_when(raw: str) -> str:
 
 
 def _minutes_page_properties(title: str, when_iso: str, content: str) -> dict:
-    props = {**_title_prop(title)}
+    props = {**_minutes_title_prop(title)}
     props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
     body = (content or "").strip() or " "
     props.update(_rich_text_prop_chunked(NOTION_MINUTES_CONTENT_PROP, body))
@@ -791,7 +799,7 @@ def _save_minutes_to_notion(
         except Exception as e:
             logger.warning("[minutes] Gemini summarize failed, saving raw only: %s", e)
 
-    props = {**_title_prop(out_title[:200])}
+    props = {**_minutes_title_prop(out_title)}
     props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
     props.update(_minutes_body_props(summary_body, raw_full if summarized else None))
 
@@ -801,7 +809,7 @@ def _save_minutes_to_notion(
         # 「原文」列が無い・名前不一致など: 要約+原文を「内容」だけにまとめて再試行
         if summarized and raw_full:
             logger.warning("[minutes] retry with merged 内容 (separate raw property may be missing)")
-            props = {**_title_prop(out_title[:200])}
+            props = {**_minutes_title_prop(out_title)}
             props.update(_date_prop(NOTION_MINUTES_DATETIME_PROP, when_iso))
             merged = (
                 f"## 要約\n\n{summary_body}\n\n---\n\n## 原文（未加工）\n\n{raw_full}"
@@ -1598,6 +1606,8 @@ def health():
         "current_model": GEMINI_MODEL,
         "sleep_db_configured": _sleep_db_configured(),
         "minutes_db_configured": _minutes_db_configured(),
+        "minutes_title_prop": NOTION_MINUTES_TITLE_PROP,
+        "minutes_content_prop": NOTION_MINUTES_CONTENT_PROP,
         "kage_public_url": KAGE_PUBLIC_URL or None,
     }
 
@@ -2552,15 +2562,13 @@ def _fetch_brain() -> dict:
             })
             out = []
             for row in data.get("results", []):
-                tit = row["properties"]["名前"]["title"]
+                tit = (row["properties"].get(NOTION_MINUTES_TITLE_PROP) or {}).get("title") or []
                 name = tit[0]["plain_text"] if tit else "(無題)"
                 when = (
                     (row["properties"].get(NOTION_MINUTES_DATETIME_PROP, {}).get("date") or {}).get("start", "")
                 )
                 rt = row["properties"].get(NOTION_MINUTES_CONTENT_PROP, {}).get("rich_text", [])
-                body = ""
-                if rt:
-                    body = rt[0].get("plain_text", "")
+                body = "".join((b.get("plain_text") or "") for b in rt) if rt else ""
                 snip = (body or "")[:900]
                 if len(body or "") > 900:
                     snip += "…"

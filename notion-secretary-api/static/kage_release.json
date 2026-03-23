@@ -1,5 +1,5 @@
 {
-  "app_version": "0.151",
+  "app_version": "0.152",
   "release_date": "2026-03-23",
-  "summary": "API失敗時にサーバーdetailを表示（議事録モーダル等）"
+  "summary": "NOTION_MINUTES_TITLE_PROP（議事録DBのタイトル列名）"
 }
