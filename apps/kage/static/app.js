@@ -1105,7 +1105,125 @@ if (btnDebugList && debugModal && debugBody) {
     }
   });
 
-  debugClose.addEventListener('click', () => debugModal.classList.remove('open'));
+  debugClose.addEventListener('click', () => {
+    debugModal.classList.remove('open');
+    const pa = document.getElementById('proposalArea');
+    if (pa) { pa.style.display = 'none'; pa.innerHTML = ''; }
+    const ex = document.getElementById('debugExecSelected');
+    if (ex) ex.style.display = 'none';
+  });
+
+  // ── 修正提案フロー ──
+  const proposalArea = document.getElementById('proposalArea');
+  const btnPropose = document.getElementById('debugPropose');
+  const btnExecSelected = document.getElementById('debugExecSelected');
+  let currentProposals = [];
+
+  if (btnPropose) {
+    btnPropose.addEventListener('click', async () => {
+      btnPropose.disabled = true;
+      btnPropose.textContent = '分析中…';
+      proposalArea.style.display = 'block';
+      proposalArea.innerHTML = '<div class="dots"><span></span><span></span><span></span></div>';
+      try {
+        const data = await post('/debug/propose', {});
+        currentProposals = data.proposals || [];
+        renderProposals(currentProposals);
+      } catch (e) {
+        proposalArea.innerHTML = '<p class="empty-msg">提案の生成に失敗しました。</p>';
+      } finally {
+        btnPropose.disabled = false;
+        btnPropose.textContent = '🔍 修正提案を生成';
+      }
+    });
+  }
+
+  function renderProposals(proposals) {
+    if (!proposals.length) {
+      proposalArea.innerHTML = '<p class="empty-msg">未対応のバグがありません。</p>';
+      if (btnExecSelected) btnExecSelected.style.display = 'none';
+      return;
+    }
+    const sevColor = { high: '#e74c3c', medium: '#f39c12', low: '#2ecc71' };
+    const sevLabel = { high: '高', medium: '中', low: '低' };
+    let h = `<p class="debug-count">修正提案: ${proposals.length}件</p>`;
+    proposals.forEach((p, i) => {
+      const sev = p.severity || 'medium';
+      const steps = (p.fix_steps || []).map(s => `<li>${esc(s)}</li>`).join('');
+      const files = (p.affected_files || []).map(f => esc(f)).join(', ');
+      h += `<div class="proposal-item">
+        <label class="proposal-header">
+          <input type="checkbox" class="proposal-checkbox" data-idx="${i}">
+          <span class="proposal-severity" style="background:${sevColor[sev]}">${sevLabel[sev]}</span>
+          <span class="proposal-title">${esc(p.title || '(無題)')}</span>
+        </label>
+        <details class="proposal-details">
+          <summary>分析・修正手順を見る</summary>
+          <div class="proposal-analysis">${esc(p.analysis || '')}</div>
+          ${files ? `<div class="proposal-files">対象: ${files}</div>` : ''}
+          ${steps ? `<ol class="proposal-steps">${steps}</ol>` : ''}
+        </details>
+        <div class="proposal-actions">
+          <button type="button" class="proposal-copy-btn" data-idx="${i}">📋 コピー</button>
+        </div>
+      </div>`;
+    });
+    proposalArea.innerHTML = h;
+    updateExecBtn();
+  }
+
+  function updateExecBtn() {
+    if (!btnExecSelected) return;
+    const checked = proposalArea.querySelectorAll('.proposal-checkbox:checked');
+    btnExecSelected.style.display = checked.length > 0 ? '' : 'none';
+    btnExecSelected.textContent = `▶ ${checked.length}件を実行`;
+  }
+
+  proposalArea.addEventListener('change', (e) => {
+    if (e.target.classList.contains('proposal-checkbox')) updateExecBtn();
+  });
+
+  proposalArea.addEventListener('click', (e) => {
+    const cb = e.target.closest('.proposal-copy-btn');
+    if (cb) {
+      const idx = parseInt(cb.dataset.idx, 10);
+      const p = currentProposals[idx];
+      if (p && p.fix_markdown) {
+        navigator.clipboard.writeText(p.fix_markdown).then(() => {
+          cb.textContent = '✓ コピー済み';
+          setTimeout(() => { cb.textContent = '📋 コピー'; }, 2000);
+        });
+      }
+    }
+  });
+
+  if (btnExecSelected) {
+    btnExecSelected.addEventListener('click', async () => {
+      const checked = proposalArea.querySelectorAll('.proposal-checkbox:checked');
+      if (!checked.length) return;
+      const items = [];
+      checked.forEach(cb => {
+        const idx = parseInt(cb.dataset.idx, 10);
+        const p = currentProposals[idx];
+        if (p) items.push({ page_id: p.page_id, title: p.title || '', fix_markdown: p.fix_markdown || '' });
+      });
+      btnExecSelected.disabled = true;
+      btnExecSelected.textContent = '実行中…';
+      try {
+        const res = await post('/debug/execute', { items, create_tasks: true });
+        const ok = (res.results || []).filter(r => r.status_updated).length;
+        proposalArea.innerHTML = `<p class="empty-msg">✓ ${ok}件を「対応中」に更新し、タスクを作成しました。</p>`;
+        btnExecSelected.style.display = 'none';
+        // リスト再読み込み
+        try { renderDebugModal(await fetchDebugList()); } catch(_) {}
+      } catch (e) {
+        alert('実行に失敗しました。');
+      } finally {
+        btnExecSelected.disabled = false;
+        btnExecSelected.textContent = '▶ 選択を実行';
+      }
+    });
+  }
 }
 
 // ── Model modal ───────────────────────────────────

@@ -4802,6 +4802,198 @@ def debug_set_status(req: DebugStatusRequest):
 
 
 # ---------------------------------------------------------------------------
+# POST /debug/propose — デバッグエントリの修正提案を自動生成
+# ---------------------------------------------------------------------------
+
+class DebugProposeRequest(BaseModel):
+    page_ids: list = []  # 空=未対応すべて（最大10件）
+
+
+def _format_debug_entries_for_gemini(items: list) -> str:
+    """デバッグエントリをGeminiプロンプト用にフォーマット"""
+    parts = []
+    for i, it in enumerate(items, 1):
+        parts.append(
+            f"[{i}] page_id: {it['page_id']}\n"
+            f"    タイトル: {it['title']}\n"
+            f"    内容: {it['content']}\n"
+            f"    会話コンテキスト: {it.get('context', '')}"
+        )
+    return "\n---\n".join(parts)
+
+
+def _build_fix_markdown(title: str, proposal: dict) -> str:
+    """構造化提案データからマークダウンを組み立て"""
+    lines = [f"## 修正提案: {title}", ""]
+    sev = proposal.get("severity", "medium")
+    lines.append(f"**重要度:** {sev}")
+    cat = proposal.get("category", "other")
+    lines.append(f"**カテゴリ:** {cat}")
+    files = proposal.get("affected_files") or []
+    if files:
+        lines.append(f"**対象ファイル:** {', '.join(files)}")
+    lines.append("")
+    lines.append("### 原因分析")
+    lines.append(proposal.get("analysis", "（分析なし）"))
+    lines.append("")
+    lines.append("### 修正手順")
+    for step in (proposal.get("fix_steps") or []):
+        lines.append(f"- {step}")
+    return "\n".join(lines)
+
+
+@app.post("/debug/propose")
+def debug_propose(req: DebugProposeRequest):
+    """未対応デバッグエントリをGeminiで分析し、修正提案を生成"""
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="NOTION_API_KEY 未設定")
+    if not GEMINI_API_KEY:
+        raise HTTPException(status_code=503, detail="GEMINI_API_KEY 未設定")
+
+    # デバッグエントリ取得
+    if req.page_ids:
+        items = []
+        for pid in req.page_ids[:10]:
+            try:
+                page = _notion_get(f"/pages/{pid}")
+                items.append(_summarize_debug_page(page))
+            except Exception:
+                logger.warning("[debug/propose] page %s not found", pid)
+    else:
+        body = {
+            "filter": {"property": "ステータス", "select": {"equals": "未対応"}},
+            "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+            "page_size": 10,
+        }
+        data = _notion_post(f"/databases/{DB['Debug']}/query", body)
+        items = [_summarize_debug_page(r) for r in data.get("results", [])]
+
+    if not items:
+        return {"proposals": [], "generated_at": "", "message": "未対応のデバッグエントリがありません。"}
+
+    entries_text = _format_debug_entries_for_gemini(items)
+    prompt = (
+        "以下はKAGEアプリ（FastAPI + Vanilla JS + Notion API）のバグ報告リストです。\n"
+        "各バグについて修正提案をJSON配列で返してください。\n\n"
+        "既知のアーキテクチャ:\n"
+        "- Backend: apps/kage/app.py（FastAPI、約5000行）\n"
+        "- Frontend: apps/kage/static/app.js, style.css, index.html\n"
+        "- データ: Notion API\n"
+        "- LLM: Gemini API\n"
+        "- ニュース: news_digest.py（RSSフィード取得・スコアリング）\n\n"
+        f"バグ報告:\n{entries_text}\n\n"
+        "出力（JSON配列のみ、他の文字禁止）:\n"
+        '[{"page_id":"元のpage_id","severity":"high|medium|low",'
+        '"analysis":"原因分析（200字以内）",'
+        '"fix_steps":["具体的な修正手順1","手順2",...],'
+        '"affected_files":["推定ファイルパス"],'
+        '"category":"frontend|backend|notion|config|other"}]'
+    )
+
+    try:
+        gemini_url = (
+            f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}"
+            f":generateContent?key={GEMINI_API_KEY}"
+        )
+        resp = requests.post(gemini_url, json={
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": {
+                "response_mime_type": "application/json",
+                "temperature": 0.3,
+            },
+        }, timeout=30)
+        resp.raise_for_status()
+        raw = resp.json()["candidates"][0]["content"]["parts"][0]["text"]
+        proposals_raw = json.loads(raw)
+    except Exception as e:
+        logger.error("[debug/propose] Gemini failed: %s", e)
+        raise HTTPException(status_code=502, detail=f"Gemini APIでの分析に失敗しました: {e}")
+
+    if not isinstance(proposals_raw, list):
+        proposals_raw = [proposals_raw] if isinstance(proposals_raw, dict) else []
+
+    # タイトルを元データからマッピング + fix_markdown 組み立て
+    title_map = {it["page_id"]: it["title"] for it in items}
+    proposals = []
+    for p in proposals_raw:
+        pid = p.get("page_id", "")
+        title = title_map.get(pid, p.get("page_id", "不明"))
+        p["title"] = title
+        p["fix_markdown"] = _build_fix_markdown(title, p)
+        proposals.append(p)
+
+    now_str = datetime.now(tz=ZoneInfo(KAGE_TZ)).strftime("%Y-%m-%dT%H:%M:%S")
+    return {"proposals": proposals, "generated_at": now_str}
+
+
+# ---------------------------------------------------------------------------
+# POST /debug/execute — 選択した修正提案を実行（ステータス更新＋タスク作成）
+# ---------------------------------------------------------------------------
+
+class DebugExecuteItem(BaseModel):
+    page_id: str
+    title: str = ""
+    fix_markdown: str = ""
+
+
+class DebugExecuteRequest(BaseModel):
+    items: list[DebugExecuteItem]
+    create_tasks: bool = True
+
+
+@app.post("/debug/execute")
+def debug_execute(req: DebugExecuteRequest):
+    """選択された修正提案を実行: ステータス→対応中、fix_markdownをNotion保存、タスク作成"""
+    if not API_KEY:
+        raise HTTPException(status_code=503, detail="NOTION_API_KEY 未設定")
+
+    results = []
+    for item in req.items[:20]:
+        pid = item.page_id.strip()
+        result = {"page_id": pid, "status_updated": False, "task_created": False}
+
+        # ステータスを「対応中」に更新
+        try:
+            _notion_patch(f"/pages/{pid}", {
+                "properties": {"ステータス": {"select": {"name": "対応中"}}},
+            })
+            result["status_updated"] = True
+        except Exception as e:
+            logger.error("[debug/execute] status update failed for %s: %s", pid, e)
+
+        # fix_markdown を内容に追記
+        if item.fix_markdown:
+            try:
+                existing = _notion_get(f"/pages/{pid}")
+                body_rt = existing.get("properties", {}).get("内容", {}).get("rich_text", [])
+                existing_body = body_rt[0]["plain_text"] if body_rt else ""
+                updated = existing_body + "\n\n---\n" + item.fix_markdown if existing_body else item.fix_markdown
+                props = {}
+                props.update(_rich_text_prop_chunked("内容", updated))
+                _notion_patch(f"/pages/{pid}", {"properties": props})
+            except Exception as e:
+                logger.error("[debug/execute] content append failed for %s: %s", pid, e)
+
+        # タスク作成
+        if req.create_tasks and item.fix_markdown:
+            try:
+                task_title = f"修正: {item.title}"[:100]
+                _notion_save_task(
+                    task_title,
+                    item.fix_markdown[:2000],
+                    None,
+                    _local_today().isoformat(),
+                )
+                result["task_created"] = True
+            except Exception as e:
+                logger.error("[debug/execute] task creation failed: %s", e)
+
+        results.append(result)
+
+    return {"results": results}
+
+
+# ---------------------------------------------------------------------------
 # POST /archive — アイテムをアーカイブ
 # ---------------------------------------------------------------------------
 
