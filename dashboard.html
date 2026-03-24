@@ -1,0 +1,1467 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>workflow_002 ダッシュボード</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Helvetica Neue', sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 16px; }
+  h1 { font-size: 1.4em; margin-bottom: 16px; color: #fff; }
+  h2 { font-size: 1.1em; margin: 24px 0 12px; color: #90caf9; border-bottom: 1px solid #333; padding-bottom: 4px; }
+  .pattern { margin-bottom: 32px; }
+  .final-video { margin: 12px 0; }
+  .final-video video { width: 100%; max-width: 360px; border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; font-size: 0.85em; margin-top: 8px; }
+  th { background: #1a1a2e; padding: 8px 6px; text-align: left; position: sticky; top: 0; }
+  td { padding: 6px; border-bottom: 1px solid #222; vertical-align: top; }
+  tr:hover td { background: #1a1a2e; }
+  .cut-num { font-weight: bold; color: #ffab40; white-space: nowrap; }
+  .narration { max-width: 240px; }
+  .telop { color: #ce93d8; }
+  .logo { color: #66bb6a; }
+  .video-cell video { width: 120px; border-radius: 4px; }
+  .no-video { color: #666; font-size: 0.8em; }
+  .status-ok { color: #66bb6a; }
+  .status-ng { color: #ef5350; }
+  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0; font-size: 0.9em; }
+  .summary span { background: #1a1a2e; padding: 4px 10px; border-radius: 4px; }
+  .app-links { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; padding: 12px 16px; background: #1a1a2e; border-radius: 8px; border: 1px solid #333; align-items: center; }
+  .app-links a { color: #a78bfa; text-decoration: none; font-size: 0.9em; font-weight: 600; padding: 6px 14px; border: 1px solid #4c1d95; border-radius: 6px; transition: all 0.15s; }
+  .app-links a:hover { background: #4c1d95; color: #fff; }
+  .app-links .note { color: #888; font-size: 0.75em; margin-left: auto; }
+</style>
+</head>
+<body>
+<h1>workflow_002 ダッシュボード</h1>
+
+<div class="app-links">
+  <a href="http://localhost:8000" target="_blank" id="qc-link" onclick="return checkApp(this)">QC Gallery (Recruit Agent)</a>
+  <span class="note">* QC Gallery は Python アプリの起動が必要です。未起動の場合は <code>start_apps.command</code> をダブルクリック</span>
+</div>
+<script>
+function checkApp(el) {
+  fetch('http://localhost:8000/api/briefs', {mode:'no-cors'}).catch(() => {
+    alert('QC Gallery に接続できません。\n\nstart_apps.command をダブルクリックしてアプリを起動してください。');
+  });
+  return true;
+}
+</script>
+
+<div class="pattern">
+<h2>no01 — バンタンデザイン研究所</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ok">11/11</span></span>
+  <span class="status-ok">final.mp4 あり</span>
+</div>
+<div class="final-video"><video src="output/workflow_002/no01/final.mp4" controls></video></div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがデザインやファッションに夢中だ</td>
+<td class="telop">子どもがデザインやファッションに夢中だ</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット01.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット02.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット03.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット04.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンデザイン研究所</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット05.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット06.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット07.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット08.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット09.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット10.mp4" controls muted></video></td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="video-cell"><video src="output/workflow_002/no01/videos/カット11.mp4" controls muted></video></td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no02 — バンタンデザイン研究所</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがデザインやファッションに夢中だ</td>
+<td class="telop">子どもがデザインやファッションに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンデザイン研究所</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no03 — バンタンゲームアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがゲームやイラストに夢中だ</td>
+<td class="telop">子どもがゲームやイラストに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンゲームアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no04 — バンタンゲームアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがゲームやイラストに夢中だ</td>
+<td class="telop">子どもがゲームやイラストに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンゲームアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no05 — ヴィーナスアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが美容やヘアメイクに夢中だ</td>
+<td class="telop">子どもが美容やヘアメイクに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">ヴィーナスアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no06 — ヴィーナスアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが美容やヘアメイクに夢中だ</td>
+<td class="telop">子どもが美容やヘアメイクに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">ヴィーナスアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no07 — バンタンクリエイターアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが動画制作やSNSに夢中だ</td>
+<td class="telop">子どもが動画制作やSNSに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンクリエイターアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no08 — バンタンクリエイターアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが動画制作やSNSに夢中だ</td>
+<td class="telop">子どもが動画制作やSNSに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンクリエイターアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no09 — レコールバンタン</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが料理やお菓子作りに夢中だ</td>
+<td class="telop">子どもが料理やお菓子作りに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">レコールバンタン</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no10 — レコールバンタン</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが料理やお菓子作りに夢中だ</td>
+<td class="telop">子どもが料理やお菓子作りに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">レコールバンタン</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no11 — KADOKAWAアニメ・声優アカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがアニメや声優に夢中だ</td>
+<td class="telop">子どもがアニメや声優に夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">KADOKAWAアニメ・声優アカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no12 — KADOKAWAアニメ・声優アカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがアニメや声優に夢中だ</td>
+<td class="telop">子どもがアニメや声優に夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">KADOKAWAアニメ・声優アカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no13 — KADOKAWAマンガアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがマンガやイラストに夢中だ</td>
+<td class="telop">子どもがマンガやイラストに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">KADOKAWAマンガアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no14 — KADOKAWAマンガアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもがマンガやイラストに夢中だ</td>
+<td class="telop">子どもがマンガやイラストに夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">KADOKAWAマンガアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no15 — バンタンミュージックアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが音楽や歌に夢中だ</td>
+<td class="telop">子どもが音楽や歌に夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンミュージックアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+<div class="pattern">
+<h2>no16 — バンタンミュージックアカデミー</h2>
+<div class="summary">
+  <span>カット数: 11</span>
+  <span>動画: <span class="status-ng">0/11</span></span>
+  <span class="status-ng">final.mp4 なし</span>
+</div>
+<table><thead><tr>
+<th>カット</th><th>ナレーション</th><th>テロップ</th><th>ロゴ</th><th>動画</th>
+</tr></thead><tbody>
+<tr>
+<td class="cut-num">1</td>
+<td class="narration">子どもが音楽や歌に夢中だ</td>
+<td class="telop">子どもが音楽や歌に夢中だ</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">2</td>
+<td class="narration">応援したい、でも将来が不安だった</td>
+<td class="telop">応援したい、でも将来が不安だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">3</td>
+<td class="narration">高校を卒業できるのか心配で</td>
+<td class="telop">高校を卒業できるのか心配で</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">4</td>
+<td class="narration">でも見つけた</td>
+<td class="telop">でも見つけた</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">5</td>
+<td class="narration">バンタンミュージックアカデミー</td>
+<td class="telop"></td>
+<td class="logo">○</td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">6</td>
+<td class="narration">好きなことを学びながら</td>
+<td class="telop">好きなことを学びながら</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">7</td>
+<td class="narration">高卒資格も取れる</td>
+<td class="telop">高卒資格も取れる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">8</td>
+<td class="narration">現役プロが直接教えてくれる</td>
+<td class="telop">現役プロが直接教えてくれる</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">9</td>
+<td class="narration">子どもの「好き」を</td>
+<td class="telop">子どもの「好き」を</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">10</td>
+<td class="narration">未来に変える場所だった</td>
+<td class="telop">未来に変える場所だった</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+<tr>
+<td class="cut-num">11</td>
+<td class="narration">まずは資料請求</td>
+<td class="telop">まずは資料請求</td>
+<td class="logo"></td>
+<td class="no-video">未生成</td>
+</tr>
+</tbody></table></div>
+
+<script>
+// テーブル行クリックで動画再生/停止
+document.querySelectorAll('.video-cell video').forEach(v => {
+  v.addEventListener('click', e => { e.target.paused ? e.target.play() : e.target.pause(); });
+});
+</script>
+</body></html>

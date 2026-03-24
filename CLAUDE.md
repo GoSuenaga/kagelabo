@@ -160,7 +160,7 @@
 | 1 | **KAGE（影秘書）** | v0.164 | Web API | `uvicorn app:app` | [Railway](https://notion-secretary-api-production.up.railway.app/app) | Notion 連携チャット秘書。デプロイ済み |
 | 2 | **Vlog 動画生成 UI** | v1 | Streamlit | `cd apps/vantan-video && streamlit run vlog_app.py` | localhost:8501 | Vlog 風広告の生成 UI（DRY_RUN 対応） |
 | 3 | **絵コンテダッシュボード** | v1 | 静的 HTML | `python3 generate_dashboard.py && open dashboard.html` | `dashboard.html`（ローカル） | workflow_002 全16パターンの台本プレビュー |
-| 4 | **QC ギャラリー** | v1 | FastAPI | `cd apps/rag-images && python3 app.py` | localhost:8000 | 広告クリエイティブの QC レビュー + Imagen 生成 |
+| 4 | **RecruitAgent-ImageAdMaker** | v1.0 | FastAPI | `cd apps/rag-images && python3 app.py` | localhost:8000 | リクルートエージェント広告バナーQC。fal.ai Flux Pro + Gemini英訳。画像バージョニング・プロンプト編集・デザイナー納品エクスポート |
 | 5 | **生成管理アプリ** | — | Streamlit | （作成中） | — | 全パターン一括生成・進捗管理・停止/再生成 |
 
 ### 更新ルール

@@ -3,287 +3,822 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>QC Gallery - Ad Creative Review</title>
+<title>Recruit Agent QC Gallery</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', sans-serif;
-    background: #0f0f0f;
-    color: #e0e0e0;
-    min-height: 100vh;
+    background: #0d0d14; color: #e0e0e0; min-height: 100vh;
   }
+
+  /* Header */
   header {
     position: sticky; top: 0; z-index: 100;
-    background: rgba(15,15,15,0.95);
-    backdrop-filter: blur(10px);
-    border-bottom: 1px solid #222;
-    padding: 16px 24px;
-    display: flex; align-items: center; justify-content: space-between;
+    background: rgba(13,13,20,0.95); backdrop-filter: blur(10px);
+    border-bottom: 1px solid #1f1f30;
+    padding: 14px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
   }
-  header h1 { font-size: 20px; font-weight: 600; letter-spacing: 0.5px; }
-  header .stats { font-size: 13px; color: #888; }
+  header h1 { font-size: 18px; font-weight: 700; color: #a78bfa; }
+  .h-badge { font-size: 12px; color: #818cf8; background: #1e1b4b; padding: 3px 10px; border-radius: 12px; }
+  .stats { font-size: 12px; color: #888; margin-left: auto; display: flex; gap: 12px; }
+  .stats .s-pending b { color: #a78bfa; }
+  .stats .s-ok b { color: #6ee7b7; }
+  .stats .s-ng b { color: #fca5a5; }
+
+  /* Toolbar */
   .toolbar {
-    padding: 12px 24px;
-    display: flex; gap: 8px; align-items: center;
-    border-bottom: 1px solid #1a1a1a;
+    padding: 10px 24px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+    border-bottom: 1px solid #1a1a28;
   }
-  .toolbar button {
-    padding: 6px 14px; border-radius: 6px; border: 1px solid #333;
-    background: #1a1a1a; color: #ccc; cursor: pointer; font-size: 13px;
+  .toolbar .sep { width: 1px; height: 20px; background: #333; margin: 0 4px; }
+  .filter-btn {
+    padding: 5px 14px; border-radius: 16px; border: 1px solid #2a2a4a;
+    background: #1a1a2e; color: #8b8fa8; cursor: pointer; font-size: 12px;
     transition: all 0.15s;
   }
-  .toolbar button:hover { background: #2a2a2a; border-color: #555; }
-  .toolbar button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+  .filter-btn:hover { background: #2a2a3e; border-color: #555; }
+  .filter-btn.active { background: #6d28d9; color: #fff; border-color: #6d28d9; }
+  .toolbar-right { margin-left: auto; display: flex; gap: 8px; }
+  .btn-gen-all {
+    padding: 6px 14px; border-radius: 16px; border: 1px solid #78350f;
+    background: #451a03; color: #fdba74; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn-gen-all:hover { background: #78350f; }
+  .btn-gen-all:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-gen-all.batch-stop { background: #7f1d1d; border-color: #991b1b; color: #fca5a5; }
+  .btn-gen-all.batch-stop:hover { background: #991b1b; }
+  .btn-stop {
+    padding: 6px 14px; border-radius: 16px; border: 1px solid #991b1b;
+    background: #7f1d1d; color: #fca5a5; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn-stop:hover { background: #991b1b; }
+  .btn-export {
+    padding: 6px 14px; border-radius: 16px; border: 1px solid #065f46;
+    background: #064e3b; color: #6ee7b7; cursor: pointer; font-size: 12px; font-weight: 600;
+  }
+  .btn-export:hover { background: #065f46; }
+  .btn-export:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Grid */
   .grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(420px, 1fr));
-    gap: 20px;
-    padding: 24px;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 16px; padding: 20px 24px;
   }
+
+  /* Card */
   .card {
-    background: #1a1a1a;
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid #262626;
-    transition: border-color 0.2s;
+    background: #141420; border-radius: 12px; overflow: hidden;
+    border: 1px solid #1f1f30; transition: all 0.2s;
   }
-  .card:hover { border-color: #444; }
-  .card.approved { border-color: #22c55e; }
-  .card.rejected { border-color: #ef4444; }
+  .card:hover { border-color: #4c1d95; box-shadow: 0 4px 20px rgba(109,40,217,0.15); }
+  .card.st-approved { border-color: #065f46; }
+  .card.st-rejected { border-color: #7f1d1d; opacity: 0.6; }
+  .card.hidden { display: none; }
+
   .card-img {
-    position: relative;
-    width: 100%;
-    aspect-ratio: 16/9;
-    background: #111;
-    display: flex; align-items: center; justify-content: center;
-    overflow: hidden;
+    position: relative; width: 100%; aspect-ratio: 9/16;
+    background: #0a0a14; overflow: hidden; cursor: pointer;
   }
-  .card-img img {
-    width: 100%; height: 100%; object-fit: cover;
-    transition: opacity 0.3s;
-  }
+  .card-img img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.3s; }
+  .card-img:hover img { transform: scale(1.03); }
   .card-img .placeholder {
-    color: #444; font-size: 14px;
+    position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    color: #444; font-size: 13px;
   }
   .card-img .loading {
-    position: absolute; inset: 0;
-    background: rgba(0,0,0,0.7);
-    display: flex; align-items: center; justify-content: center;
+    position: absolute; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+    font-size: 12px; color: #fdba74;
   }
   .spinner {
-    width: 32px; height: 32px;
-    border: 3px solid #333; border-top-color: #2563eb;
-    border-radius: 50%;
-    animation: spin 0.8s linear infinite;
+    width: 32px; height: 32px; border: 3px solid #333; border-top-color: #a78bfa;
+    border-radius: 50%; animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
-  .card-body { padding: 16px; }
-  .card-num {
-    font-size: 11px; color: #666; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;
-  }
-  .card-hl {
-    font-size: 18px; font-weight: 700; color: #f0f0f0;
-    margin-bottom: 6px; line-height: 1.4;
-  }
-  .card-text { font-size: 13px; color: #999; line-height: 1.6; margin-bottom: 8px; }
-  .card-cta {
-    display: inline-block;
-    padding: 6px 16px; border-radius: 6px;
-    background: #2563eb; color: #fff;
-    font-size: 13px; font-weight: 500;
-    margin-bottom: 12px;
-  }
-  .card-prompt {
-    font-size: 11px; color: #555; line-height: 1.5;
-    border-top: 1px solid #262626; padding-top: 10px; margin-top: 4px;
-    display: none;
-  }
-  .card.show-prompt .card-prompt { display: block; }
-  .card-actions {
-    display: flex; gap: 6px; padding: 0 16px 16px;
-  }
-  .card-actions button {
-    flex: 1; padding: 8px; border-radius: 8px; border: 1px solid #333;
-    background: #111; color: #ccc; cursor: pointer; font-size: 12px;
-    font-weight: 500; transition: all 0.15s;
-  }
-  .card-actions button:hover { background: #222; }
-  .card-actions .btn-regen { border-color: #2563eb; color: #60a5fa; }
-  .card-actions .btn-regen:hover { background: #1e3a5f; }
-  .card-actions .btn-regen:disabled { opacity: 0.4; cursor: not-allowed; }
-  .card-actions .btn-ok { border-color: #22c55e; color: #4ade80; }
-  .card-actions .btn-ok:hover { background: #14532d; }
-  .card-actions .btn-ng { border-color: #ef4444; color: #f87171; }
-  .card-actions .btn-ng:hover { background: #450a0a; }
-  .card-actions .btn-prompt { border-color: #555; color: #888; }
 
+  /* Badge row */
+  .badge-row {
+    padding: 8px 12px; display: flex; gap: 6px; align-items: center;
+    border-bottom: 1px solid #1a1a28; flex-wrap: wrap;
+  }
+  .badge-num { font-size: 11px; color: #a78bfa; font-weight: 700; }
+  .badge-seg {
+    font-size: 10px; background: #1e1b4b; color: #818cf8;
+    padding: 2px 8px; border-radius: 10px;
+  }
+  .badge-status {
+    font-size: 10px; padding: 2px 7px; border-radius: 10px;
+    background: #1f2937; color: #9ca3af; margin-left: auto;
+  }
+  .badge-status.bs-approved { background: #064e3b; color: #6ee7b7; }
+  .badge-status.bs-rejected { background: #450a0a; color: #fca5a5; }
+
+  /* Copy panel */
+  .copy-panel { padding: 10px 12px; }
+  .copy-hl { font-size: 13px; font-weight: 700; color: #e2e8f0; line-height: 1.5; margin-bottom: 4px; white-space: pre-line; }
+  .copy-body { font-size: 11px; color: #94a3b8; line-height: 1.5; margin-bottom: 4px; white-space: pre-line; }
+  .copy-cta {
+    font-size: 10px; color: #7c3aed; font-weight: 600;
+    background: #1e1b4b; padding: 2px 8px; border-radius: 6px; display: inline-block; margin-bottom: 4px;
+  }
+  .copy-tone { font-size: 10px; color: #4b5563; }
+
+  /* Version indicator */
+  .version-row {
+    padding: 4px 12px 8px; font-size: 11px; color: #666;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .version-link { color: #818cf8; cursor: pointer; text-decoration: underline; }
+  .version-link:hover { color: #a78bfa; }
+
+  /* Action row */
+  .action-row { display: flex; gap: 5px; padding: 0 12px 12px; }
+  .action-row button {
+    flex: 1; padding: 7px 4px; border-radius: 7px; border: none;
+    cursor: pointer; font-size: 11px; font-weight: 600; transition: all 0.15s;
+  }
+  .btn-regen { background: #451a03; color: #fdba74; border: 1px solid #78350f !important; }
+  .btn-regen:hover { background: #78350f; }
+  .btn-regen:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-ok { background: #064e3b; color: #6ee7b7; border: 1px solid #065f46 !important; }
+  .btn-ok:hover { background: #065f46; }
+  .btn-ng { background: #450a0a; color: #fca5a5; border: 1px solid #7f1d1d !important; }
+  .btn-ng:hover { background: #7f1d1d; }
+
+  /* Toast */
   .toast {
-    position: fixed; bottom: 24px; right: 24px;
-    background: #1e3a5f; color: #60a5fa; padding: 12px 20px;
-    border-radius: 8px; font-size: 13px;
-    opacity: 0; transition: opacity 0.3s; pointer-events: none;
-    z-index: 200;
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    background: #1e1b4b; color: #a78bfa; border: 1px solid #4c1d95;
+    padding: 10px 20px; border-radius: 10px; font-size: 13px;
+    z-index: 2000; opacity: 0; transition: opacity 0.3s; pointer-events: none;
   }
   .toast.show { opacity: 1; }
+
+  /* Version Modal */
+  .modal-bg {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.88); z-index: 1000;
+  }
+  .modal-bg.open { display: flex; align-items: center; justify-content: center; padding: 20px; }
+  .modal-inner {
+    background: #141420; border-radius: 14px; max-width: 800px; width: 100%;
+    max-height: 85vh; overflow-y: auto; border: 1px solid #2a2a4a; padding: 24px;
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px;
+  }
+  .modal-header h2 { font-size: 16px; color: #e2e8f0; }
+  .modal-close {
+    background: #1f1f30; border: none; color: #999; font-size: 18px;
+    cursor: pointer; border-radius: 7px; width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .modal-close:hover { background: #2a2a4a; color: #fff; }
+  .ver-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 12px;
+  }
+  .ver-thumb {
+    position: relative; border-radius: 8px; overflow: hidden;
+    border: 2px solid #1f1f30; cursor: pointer; transition: all 0.2s;
+  }
+  .ver-thumb:hover { border-color: #6d28d9; }
+  .ver-thumb.selected { border-color: #6ee7b7; box-shadow: 0 0 12px rgba(110,231,183,0.3); }
+  .ver-thumb img { width: 100%; aspect-ratio: 9/16; object-fit: cover; display: block; }
+  .ver-thumb .ver-label {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    background: rgba(0,0,0,0.7); padding: 4px 8px;
+    font-size: 11px; color: #ccc; text-align: center;
+  }
+  .ver-thumb.selected .ver-label { color: #6ee7b7; font-weight: 700; }
+  .ver-actions {
+    margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .ver-actions button {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .btn-use-latest { background: #1e1b4b; color: #a78bfa; }
+  .btn-use-latest:hover { background: #2e2b5b; }
+  .btn-select-ver { background: #064e3b; color: #6ee7b7; }
+  .btn-select-ver:hover { background: #065f46; }
+
+  .no-versions { color: #555; font-size: 13px; padding: 40px; text-align: center; }
+
+  /* Prompt Edit Modal */
+  .prompt-modal .modal-inner { max-width: 640px; }
+  .prompt-label { font-size: 11px; color: #666; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .prompt-original {
+    font-size: 12px; color: #888; background: #0a0a14; border: 1px solid #1f1f30;
+    border-radius: 8px; padding: 10px; margin-bottom: 12px; line-height: 1.6;
+    max-height: 120px; overflow-y: auto; white-space: pre-wrap;
+  }
+  .prompt-textarea {
+    width: 100%; min-height: 140px; background: #1a1a2e; border: 1px solid #2a2a4a;
+    border-radius: 8px; padding: 10px; color: #e0e0e0; font-size: 13px;
+    font-family: inherit; line-height: 1.6; resize: vertical;
+  }
+  .prompt-textarea:focus { outline: none; border-color: #6d28d9; }
+  .prompt-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
+  .prompt-actions button {
+    padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
+    font-size: 12px; font-weight: 600;
+  }
+  .btn-save-prompt { background: #6d28d9; color: #fff; }
+  .btn-save-prompt:hover { background: #7c3aed; }
+  .btn-reset-prompt { background: #1f1f30; color: #999; }
+  .btn-reset-prompt:hover { background: #2a2a4a; color: #fff; }
+  .btn-save-regen { background: #451a03; color: #fdba74; }
+  .btn-save-regen:hover { background: #78350f; }
+  .prompt-hint { font-size: 10px; color: #555; margin-top: 6px; }
+  .has-override { color: #fdba74; }
+
+  /* Edit button in card */
+  .btn-edit { background: #1e1b4b; color: #818cf8; border: 1px solid #4c1d95 !important; }
+  .btn-edit:hover { background: #2e2b5b; }
 </style>
 </head>
 <body>
+
 <header>
-  <h1>QC Gallery</h1>
-  <div class="stats" id="stats">Loading...</div>
+  <h1>Recruit Agent QC Gallery</h1>
+  <span class="h-badge">fal.ai Flux Dev</span>
+  <span class="h-badge" id="h-count">20 briefs</span>
+  <div class="stats">
+    <span class="s-pending">Pending <b id="cnt-pending">0</b></span>
+    <span class="s-ok">OK <b id="cnt-ok">0</b></span>
+    <span class="s-ng">NG <b id="cnt-ng">0</b></span>
+  </div>
 </header>
+
 <div class="toolbar">
-  <button class="active" data-filter="all">All</button>
-  <button data-filter="pending">Pending</button>
-  <button data-filter="approved">Approved</button>
-  <button data-filter="rejected">Rejected</button>
-  <button id="btn-regen-all" style="margin-left:auto; background:#2563eb; border-color:#2563eb; color:#fff;">
-    Generate All Missing
-  </button>
+  <button class="filter-btn active" data-status="all">All</button>
+  <button class="filter-btn" data-status="pending">Pending</button>
+  <button class="filter-btn" data-status="approved">OK</button>
+  <button class="filter-btn" data-status="rejected">NG</button>
+  <div class="sep"></div>
+  <button class="filter-btn active" data-seg="all">全て</button>
+  <!-- segment buttons populated dynamically -->
+  <div class="toolbar-right">
+    <button class="btn-stop" id="btn-stop" style="display:none" onclick="regenAllMissing()">Stop</button>
+    <button class="btn-gen-all" id="btn-gen-all">Generate All Missing</button>
+    <button class="btn-export" id="btn-export" onclick="exportApproved()">Export Approved</button>
+  </div>
 </div>
+
 <div class="grid" id="grid"></div>
 <div class="toast" id="toast"></div>
 
+<!-- Prompt Edit Modal -->
+<div class="modal-bg prompt-modal" id="prompt-modal">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <h2 id="prompt-modal-title">Edit Prompt</h2>
+      <button class="modal-close" onclick="closePromptModal()">x</button>
+    </div>
+    <div class="prompt-label">Original (from spreadsheet)</div>
+    <div class="prompt-original" id="prompt-original"></div>
+    <div class="prompt-label">Override prompt <span style="color:#fdba74">(edit here — auto-translated to EN for Flux Pro)</span></div>
+    <textarea class="prompt-textarea" id="prompt-edit" placeholder="Leave empty to use the original prompt..."></textarea>
+    <div class="prompt-hint">Tip: Japanese OK — auto-translated to English before generation. Remove salary numbers to avoid text artifacts.</div>
+    <div class="prompt-actions">
+      <button class="btn-reset-prompt" onclick="resetPrompt()">Reset to Original</button>
+      <button class="btn-save-prompt" onclick="savePrompt()">Save</button>
+      <button class="btn-save-regen" onclick="saveAndRegen()">Save & Regen</button>
+    </div>
+  </div>
+</div>
+
+<!-- Version Modal -->
+<div class="modal-bg" id="ver-modal">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <h2 id="ver-modal-title">Versions</h2>
+      <button class="modal-close" onclick="closeVerModal()">x</button>
+    </div>
+    <div class="ver-grid" id="ver-grid"></div>
+    <div class="ver-actions" id="ver-actions" style="display:none">
+      <button class="btn-use-latest" onclick="selectVersion(0)">Use Latest</button>
+      <button class="btn-select-ver" id="btn-select-ver" onclick="confirmSelection()">Select This Version</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const grid = document.getElementById('grid');
-const toast = document.getElementById('toast');
-const stats = document.getElementById('stats');
+const toastEl = document.getElementById('toast');
 let briefs = [];
-let cardStates = {}; // { id: 'pending'|'approved'|'rejected' }
+let activeStatus = 'all';
+let activeSeg = 'all';
+let modalNum = null;
+let modalSelectedVer = null;
+let batchRunning = false;
+let batchAbort = false;
 
-function showToast(msg) {
-  toast.textContent = msg;
-  toast.classList.add('show');
-  setTimeout(() => toast.classList.remove('show'), 2500);
+const SEG_SHORT = {
+  'コンサルタント': 'コンサル',
+  '金融（銀行・証券）': '金融',
+  '製造業': '製造',
+  'マーケティング職': 'マーケ',
+  'エンジニア': 'エンジ',
+  '全職種共通': '全職種',
+};
+
+function toast(msg, dur = 2500) {
+  toastEl.textContent = msg;
+  toastEl.classList.add('show');
+  setTimeout(() => toastEl.classList.remove('show'), dur);
 }
 
+// -------------------------------------------------------
+// Stats & Filter
+// -------------------------------------------------------
 function updateStats() {
-  const a = Object.values(cardStates).filter(s => s === 'approved').length;
-  const r = Object.values(cardStates).filter(s => s === 'rejected').length;
-  const p = briefs.length - a - r;
-  stats.textContent = `Total: ${briefs.length}  |  Pending: ${p}  |  ✓ ${a}  |  ✗ ${r}`;
+  let p = 0, o = 0, n = 0;
+  briefs.forEach(b => {
+    if (b.qc_status === 'approved') o++;
+    else if (b.qc_status === 'rejected') n++;
+    else p++;
+  });
+  document.getElementById('cnt-pending').textContent = p;
+  document.getElementById('cnt-ok').textContent = o;
+  document.getElementById('cnt-ng').textContent = n;
 }
 
-function applyFilter(filter) {
+function applyFilters() {
+  let vis = 0;
   document.querySelectorAll('.card').forEach(card => {
-    const id = parseInt(card.dataset.id);
-    const state = cardStates[id] || 'pending';
-    card.style.display = (filter === 'all' || filter === state) ? '' : 'none';
+    const b = briefs.find(x => x.num === parseInt(card.dataset.num));
+    if (!b) return;
+    const seg = SEG_SHORT[b.segment] || b.segment;
+    const matchStatus = activeStatus === 'all' || b.qc_status === activeStatus;
+    const matchSeg = activeSeg === 'all' || seg === activeSeg;
+    const show = matchStatus && matchSeg;
+    card.classList.toggle('hidden', !show);
+    if (show) vis++;
+  });
+}
+
+// -------------------------------------------------------
+// Render
+// -------------------------------------------------------
+function buildSegButtons() {
+  const segs = [...new Set(briefs.map(b => SEG_SHORT[b.segment] || b.segment))];
+  const toolbar = document.querySelector('.toolbar');
+  const sep = toolbar.querySelector('.sep');
+  // Remove old seg buttons (keep status buttons, sep, and toolbar-right)
+  toolbar.querySelectorAll('.filter-btn[data-seg]').forEach(b => { if (b.dataset.seg !== 'all') b.remove(); });
+  segs.forEach(s => {
+    const btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.dataset.seg = s;
+    btn.textContent = s;
+    toolbar.querySelector('.toolbar-right').before(btn);
+  });
+  bindFilterEvents();
+}
+
+function bindFilterEvents() {
+  document.querySelectorAll('.filter-btn[data-status]').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.filter-btn[data-status]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeStatus = btn.dataset.status;
+      applyFilters();
+    };
+  });
+  document.querySelectorAll('.filter-btn[data-seg]').forEach(btn => {
+    btn.onclick = () => {
+      document.querySelectorAll('.filter-btn[data-seg]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeSeg = btn.dataset.seg;
+      applyFilters();
+    };
   });
 }
 
 function renderCards() {
   grid.innerHTML = '';
   briefs.forEach(b => {
-    cardStates[b.id] = cardStates[b.id] || 'pending';
+    const num = b.num;
+    const seg = SEG_SHORT[b.segment] || b.segment;
     const card = document.createElement('div');
-    card.className = 'card';
-    card.dataset.id = b.id;
-    const imgFile = `/images/${String(b.id).padStart(2,'0')}.jpg`;
+    card.className = 'card' + (b.qc_status !== 'pending' ? ` st-${b.qc_status}` : '');
+    card.dataset.num = num;
+
+    const imgSrc = b.current_image ? b.current_image + '?t=' + Date.now() : '';
+    const hasImg = !!b.current_image;
+    const vc = b.version_count;
+    const selV = b.selected_version;
+    const dispV = selV || vc;
+    const verText = vc > 0 ? `v${String(dispV).padStart(3,'0')} / ${vc} versions` : 'no images';
+
+    const statusLabel = b.qc_status === 'approved' ? 'OK' : b.qc_status === 'rejected' ? 'NG' : 'Pending';
+    const statusCls = b.qc_status !== 'pending' ? ` bs-${b.qc_status}` : '';
+
     card.innerHTML = `
-      <div class="card-img" id="img-wrap-${b.id}">
-        <img src="${imgFile}" onerror="this.style.display='none'; this.nextElementSibling.style.display=''" style="display:block">
-        <div class="placeholder" style="display:none">No image — click Regen</div>
+      <div class="card-img" onclick="openVerModal(${num})">
+        ${hasImg ? `<img src="${imgSrc}" alt="#${String(num).padStart(2,'0')}">` : ''}
+        <div class="placeholder" style="display:${hasImg ? 'none' : 'flex'}">No image</div>
       </div>
-      <div class="card-body">
-        <div class="card-num">Creative #${String(b.id).padStart(2,'0')}</div>
-        <div class="card-hl">${b.headline}</div>
-        <div class="card-text">${b.body}</div>
-        <div class="card-cta">${b.cta}</div>
-        <div class="card-prompt">Prompt: ${b.prompt}</div>
+      <div class="badge-row">
+        <span class="badge-num">#${String(num).padStart(2,'0')}</span>
+        <span class="badge-seg">${seg}</span>
+        <span class="badge-status${statusCls}">${statusLabel}</span>
       </div>
-      <div class="card-actions">
-        <button class="btn-regen" onclick="regen(${b.id}, this)">↻ Regen</button>
-        <button class="btn-ok" onclick="setStatus(${b.id}, 'approved')">✓ OK</button>
-        <button class="btn-ng" onclick="setStatus(${b.id}, 'rejected')">✗ NG</button>
-        <button class="btn-prompt" onclick="togglePrompt(${b.id})">Prompt</button>
+      <div class="copy-panel">
+        <div class="copy-hl">${(b.copy_hl || '').replace(/\n/g, '<br>')}</div>
+        <div class="copy-body">${(b.copy_body || '').replace(/\n/g, '<br>')}</div>
+        <div class="copy-cta">${b.copy_cta || ''}</div>
+        <div class="copy-tone">${b.tone || ''}</div>
+      </div>
+      <div class="version-row">
+        <span class="version-link" onclick="event.stopPropagation(); openVerModal(${num})">${verText}</span>
+        ${b.prompt_override ? '<span class="has-override" title="Custom prompt set"> (edited)</span>' : ''}
+      </div>
+      <div class="action-row">
+        <button class="btn-edit" onclick="openPromptModal(${num})">Edit</button>
+        <button class="btn-regen" id="rbtn-${num}" onclick="regenOne(${num})">Regen</button>
+        <button class="btn-ok" onclick="setStatus(${num},'approved')">OK</button>
+        <button class="btn-ng" onclick="setStatus(${num},'rejected')">NG</button>
       </div>
     `;
     grid.appendChild(card);
   });
   updateStats();
+  applyFilters();
 }
 
-function setStatus(id, status) {
-  cardStates[id] = status;
-  const card = document.querySelector(`.card[data-id="${id}"]`);
-  card.classList.remove('approved', 'rejected');
-  if (status !== 'pending') card.classList.add(status);
+// -------------------------------------------------------
+// Actions
+// -------------------------------------------------------
+async function setStatus(num, status) {
+  try {
+    const res = await fetch(`/api/status/${num}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({status}),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail);
+  } catch (e) {
+    toast('Error: ' + e.message);
+    return;
+  }
+  const b = briefs.find(x => x.num === num);
+  if (b) b.qc_status = status;
+
+  const card = document.querySelector(`.card[data-num="${num}"]`);
+  card.classList.remove('st-approved', 'st-rejected');
+  if (status !== 'pending') card.classList.add(`st-${status}`);
+
+  const badge = card.querySelector('.badge-status');
+  badge.className = 'badge-status' + (status !== 'pending' ? ` bs-${status}` : '');
+  badge.textContent = status === 'approved' ? 'OK' : status === 'rejected' ? 'NG' : 'Pending';
+
   updateStats();
-  showToast(`#${String(id).padStart(2,'0')} → ${status}`);
+  applyFilters();
+  toast(`#${String(num).padStart(2,'0')} → ${status}`);
 }
 
-function togglePrompt(id) {
-  document.querySelector(`.card[data-id="${id}"]`).classList.toggle('show-prompt');
-}
-
-async function regen(id, btn) {
+async function regenOne(num, skipConfirm = false) {
+  if (!skipConfirm && !batchRunning) {
+    if (!confirm(`#${String(num).padStart(2,'0')} を再生成しますか？\n（10〜30秒かかります）`)) return;
+  }
+  const btn = document.getElementById('rbtn-' + num);
   btn.disabled = true;
-  btn.textContent = '⏳ Generating...';
-  const wrap = document.getElementById(`img-wrap-${id}`);
-  // Show loading overlay
-  let loader = wrap.querySelector('.loading');
+  btn.textContent = 'Generating...';
+
+  const cardImg = document.querySelector(`.card[data-num="${num}"] .card-img`);
+  let loader = cardImg.querySelector('.loading');
   if (!loader) {
     loader = document.createElement('div');
     loader.className = 'loading';
-    loader.innerHTML = '<div class="spinner"></div>';
-    wrap.appendChild(loader);
+    loader.innerHTML = '<div class="spinner"></div><span>Generating...</span>';
+    cardImg.appendChild(loader);
   }
   loader.style.display = 'flex';
 
   try {
-    const resp = await fetch(`/api/regen?num=${id}`);
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.detail || 'API error');
+    const res = await fetch(`/api/regen/${num}`, {method: 'POST'});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'API error');
 
-    // Refresh image with cache-bust
-    const img = wrap.querySelector('img');
-    img.src = data.path + '?t=' + Date.now();
-    img.style.display = 'block';
-    wrap.querySelector('.placeholder').style.display = 'none';
-    showToast(`#${String(id).padStart(2,'0')} regenerated!`);
+    // Update brief data
+    const b = briefs.find(x => x.num === num);
+    if (b) {
+      b.version_count = data.version;
+      b.current_image = data.path;
+      if (b.selected_version === null) b.current_image = data.path;
+    }
+
+    // Update card image
+    const img = cardImg.querySelector('img');
+    if (img) {
+      img.src = data.path + '?t=' + Date.now();
+    } else {
+      const newImg = document.createElement('img');
+      newImg.src = data.path + '?t=' + Date.now();
+      newImg.alt = '#' + String(num).padStart(2, '0');
+      cardImg.prepend(newImg);
+    }
+    cardImg.querySelector('.placeholder').style.display = 'none';
+
+    // Update version text
+    const verLink = document.querySelector(`.card[data-num="${num}"] .version-link`);
+    if (verLink) {
+      const dispV = b.selected_version || data.version;
+      verLink.textContent = `v${String(dispV).padStart(3,'0')} / ${data.version} versions`;
+    }
+
+    toast(`#${String(num).padStart(2,'0')} v${String(data.version).padStart(3,'0')} generated!`);
   } catch (e) {
-    showToast(`Error: ${e.message}`);
+    toast('Error: ' + e.message);
   } finally {
     loader.style.display = 'none';
     btn.disabled = false;
-    btn.textContent = '↻ Regen';
+    btn.textContent = 'Regen';
   }
 }
 
-async function regenAll() {
-  const btn = document.getElementById('btn-regen-all');
-  btn.disabled = true;
-  btn.textContent = 'Generating...';
-  for (const b of briefs) {
-    const imgFile = `/images/${String(b.id).padStart(2,'0')}.jpg`;
-    try {
-      const check = await fetch(imgFile, { method: 'HEAD' });
-      if (check.ok) continue; // skip existing
-    } catch {}
-    const regenBtn = document.querySelector(`.card[data-id="${b.id}"] .btn-regen`);
-    await regen(b.id, regenBtn);
+async function regenAllMissing() {
+  const btn = document.getElementById('btn-gen-all');
+  const stopBtn = document.getElementById('btn-stop');
+
+  if (batchRunning) {
+    // Stop requested
+    batchAbort = true;
+    btn.disabled = true;
+    toast('Stopping after current image...');
+    return;
   }
+
+  const missing = briefs.filter(b => b.version_count === 0);
+  if (missing.length === 0) {
+    toast('All briefs already have images.');
+    return;
+  }
+
+  if (!confirm(`${missing.length} 件の未生成画像を生成します。\n1枚あたり10〜30秒かかります。\n\n途中で止めたい場合は「Stop」ボタンを押してください。`)) {
+    return;
+  }
+
+  batchRunning = true;
+  batchAbort = false;
+  btn.textContent = 'Stop';
+  btn.classList.add('batch-stop');
+  stopBtn.style.display = '';
+
+  let generated = 0;
+  for (const b of missing) {
+    if (batchAbort) break;
+    toast(`Generating ${generated + 1}/${missing.length}...`, 30000);
+    await regenOne(b.num, true);
+    generated++;
+  }
+
+  batchRunning = false;
+  batchAbort = false;
   btn.disabled = false;
   btn.textContent = 'Generate All Missing';
-  showToast('All missing images generated!');
+  btn.classList.remove('batch-stop');
+  stopBtn.style.display = 'none';
+
+  if (generated < missing.length) {
+    toast(`Stopped. Generated ${generated}/${missing.length} images.`);
+  } else {
+    toast(`Done! Generated ${generated} images.`);
+  }
 }
 
-// Filter buttons
-document.querySelectorAll('.toolbar button[data-filter]').forEach(btn => {
-  btn.addEventListener('click', () => {
-    document.querySelectorAll('.toolbar button[data-filter]').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-    applyFilter(btn.dataset.filter);
-  });
+// -------------------------------------------------------
+// Export Approved
+// -------------------------------------------------------
+async function exportApproved() {
+  const btn = document.getElementById('btn-export');
+  const approvedCount = briefs.filter(b => b.qc_status === 'approved').length;
+  if (approvedCount === 0) {
+    toast('No approved briefs to export.');
+    return;
+  }
+  if (!confirm(`${approvedCount} approved briefs will be exported to output/deliverables/.\nImages + handoff HTML for designer.`)) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Exporting...';
+  try {
+    const res = await fetch('/api/export', {method: 'POST'});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail);
+    toast(`Exported ${data.count} creatives to ${data.path}`);
+    alert(`Export complete!\n\n${data.count} creatives exported.\n\nFolder: ${data.path}\n\nShare this Dropbox folder link with your designer.\nhandoff.html contains all text + images.`);
+  } catch (e) {
+    toast('Export error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Export Approved';
+  }
+}
+
+// -------------------------------------------------------
+// Prompt Edit Modal
+// -------------------------------------------------------
+let promptEditNum = null;
+
+function openPromptModal(num) {
+  promptEditNum = num;
+  const b = briefs.find(x => x.num === num);
+  const seg = SEG_SHORT[b.segment] || b.segment;
+  document.getElementById('prompt-modal-title').textContent = `#${String(num).padStart(2,'0')} ${seg} — Edit Prompt`;
+  document.getElementById('prompt-original').textContent = b.prompt;
+  document.getElementById('prompt-edit').value = b.prompt_override || b.prompt;
+  document.getElementById('prompt-modal').classList.add('open');
+}
+
+function closePromptModal() {
+  document.getElementById('prompt-modal').classList.remove('open');
+  promptEditNum = null;
+}
+
+async function savePrompt() {
+  if (promptEditNum === null) return;
+  const num = promptEditNum;
+  const text = document.getElementById('prompt-edit').value.trim();
+  const b = briefs.find(x => x.num === num);
+  // If text matches original, treat as reset
+  const isOriginal = text === b.prompt || text === '';
+  const sendPrompt = isOriginal ? null : text;
+
+  try {
+    const res = await fetch(`/api/prompt/${num}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt: sendPrompt}),
+    });
+    if (!res.ok) throw new Error((await res.json()).detail);
+    const data = await res.json();
+    b.prompt_override = data.prompt_override;
+    // Update (edited) indicator
+    const card = document.querySelector(`.card[data-num="${num}"] .version-row`);
+    const existing = card.querySelector('.has-override');
+    if (data.prompt_override && !existing) {
+      const span = document.createElement('span');
+      span.className = 'has-override';
+      span.title = 'Custom prompt set';
+      span.textContent = ' (edited)';
+      card.appendChild(span);
+    } else if (!data.prompt_override && existing) {
+      existing.remove();
+    }
+    toast(`#${String(num).padStart(2,'0')} prompt ${data.prompt_override ? 'saved' : 'reset to original'}`);
+    closePromptModal();
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function resetPrompt() {
+  document.getElementById('prompt-edit').value = '';
+  const b = briefs.find(x => x.num === promptEditNum);
+  document.getElementById('prompt-edit').value = b.prompt;
+  // Save as reset
+  const num = promptEditNum;
+  try {
+    await fetch(`/api/prompt/${num}`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({prompt: null}),
+    });
+    b.prompt_override = null;
+    const existing = document.querySelector(`.card[data-num="${num}"] .has-override`);
+    if (existing) existing.remove();
+    toast(`#${String(num).padStart(2,'0')} prompt reset to original`);
+    closePromptModal();
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+async function saveAndRegen() {
+  await savePrompt();
+  if (promptEditNum !== null) return; // modal closed means save succeeded
+  // promptEditNum is null after close, but we saved the num
+}
+
+// Wrap saveAndRegen properly
+;(function() {
+  const origSaveAndRegen = saveAndRegen;
+  saveAndRegen = async function() {
+    const num = promptEditNum;
+    await savePrompt();
+    // After save, prompt modal is closed, so regen
+    if (num) await regenOne(num);
+  };
+})();
+
+document.getElementById('prompt-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('prompt-modal')) closePromptModal();
 });
 
-document.getElementById('btn-regen-all').addEventListener('click', regenAll);
+// -------------------------------------------------------
+// Version Modal
+// -------------------------------------------------------
+async function openVerModal(num) {
+  modalNum = num;
+  const b = briefs.find(x => x.num === num);
+  const seg = b ? (SEG_SHORT[b.segment] || b.segment) : '';
+  document.getElementById('ver-modal-title').textContent = `#${String(num).padStart(2,'0')} ${seg} — Versions`;
 
+  const verGrid = document.getElementById('ver-grid');
+  verGrid.innerHTML = '<div class="no-versions">Loading...</div>';
+  document.getElementById('ver-modal').classList.add('open');
+  document.getElementById('ver-actions').style.display = 'none';
+
+  try {
+    const res = await fetch(`/api/versions/${num}`);
+    const data = await res.json();
+
+    if (data.versions.length === 0) {
+      verGrid.innerHTML = '<div class="no-versions">No images generated yet. Click Regen to create one.</div>';
+      return;
+    }
+
+    modalSelectedVer = data.selected_version || data.version_count;
+    verGrid.innerHTML = '';
+    data.versions.forEach(v => {
+      const thumb = document.createElement('div');
+      thumb.className = 'ver-thumb' + (v.version === modalSelectedVer ? ' selected' : '');
+      thumb.dataset.ver = v.version;
+      thumb.onclick = () => {
+        document.querySelectorAll('.ver-thumb').forEach(t => t.classList.remove('selected'));
+        thumb.classList.add('selected');
+        modalSelectedVer = v.version;
+      };
+      thumb.innerHTML = `
+        <img src="${v.path}?t=${Date.now()}" alt="v${String(v.version).padStart(3,'0')}">
+        <div class="ver-label">v${String(v.version).padStart(3,'0')}${v.selected ? ' (selected)' : ''}</div>
+      `;
+      verGrid.appendChild(thumb);
+    });
+    document.getElementById('ver-actions').style.display = 'flex';
+  } catch (e) {
+    verGrid.innerHTML = `<div class="no-versions">Error: ${e.message}</div>`;
+  }
+}
+
+function closeVerModal() {
+  document.getElementById('ver-modal').classList.remove('open');
+  modalNum = null;
+  modalSelectedVer = null;
+}
+
+async function selectVersion(ver) {
+  if (modalNum === null) return;
+  const num = modalNum;
+  try {
+    const res = await fetch(`/api/select/${num}/${ver}`, {method: 'POST'});
+    if (!res.ok) throw new Error((await res.json()).detail);
+    const data = await res.json();
+
+    const b = briefs.find(x => x.num === num);
+    if (b) {
+      b.selected_version = data.selected_version;
+      const dispV = data.selected_version || b.version_count;
+      b.current_image = `/images/${String(num).padStart(2,'0')}/v${String(dispV).padStart(3,'0')}.jpg`;
+
+      // Update card
+      const cardImg = document.querySelector(`.card[data-num="${num}"] .card-img img`);
+      if (cardImg) cardImg.src = b.current_image + '?t=' + Date.now();
+      const verLink = document.querySelector(`.card[data-num="${num}"] .version-link`);
+      if (verLink) verLink.textContent = `v${String(dispV).padStart(3,'0')} / ${b.version_count} versions`;
+    }
+
+    closeVerModal();
+    toast(`#${String(num).padStart(2,'0')} → v${ver === 0 ? 'latest' : String(ver).padStart(3,'0')} selected`);
+  } catch (e) {
+    toast('Error: ' + e.message);
+  }
+}
+
+function confirmSelection() {
+  if (modalSelectedVer !== null) selectVersion(modalSelectedVer);
+}
+
+// Close modal on Escape / click outside
+document.getElementById('ver-modal').addEventListener('click', e => {
+  if (e.target === document.getElementById('ver-modal')) closeVerModal();
+});
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && document.getElementById('ver-modal').classList.contains('open')) closeVerModal();
+});
+
+// -------------------------------------------------------
 // Init
+// -------------------------------------------------------
+document.getElementById('btn-gen-all').addEventListener('click', regenAllMissing);
+bindFilterEvents();
+
 fetch('/api/briefs').then(r => r.json()).then(data => {
   briefs = data;
+  buildSegButtons();
   renderCards();
 });
 </script>
