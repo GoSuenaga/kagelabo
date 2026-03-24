@@ -48,6 +48,8 @@ body {
 .header {
   flex: 0 0 var(--hdr);
   min-height: var(--hdr);
+  position: sticky;
+  top: 0;
   background: rgba(13,13,13,0.95);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -452,7 +454,7 @@ body {
   border-radius: 10px;
   border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.2);
-  overflow: hidden;
+  overflow: visible;
 }
 .welcome-details-sum {
   cursor: pointer;
@@ -696,6 +698,8 @@ body {
 /* ── Footer ──────────────────────────────────────── */
 .footer {
   flex: 0 0 auto;
+  position: sticky;
+  bottom: 0;
   background: rgba(13,13,13,0.97);
   backdrop-filter: blur(12px);
   border-top: 1px solid var(--border);

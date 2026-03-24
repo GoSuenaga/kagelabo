@@ -163,7 +163,7 @@ def _invalidate_profile_cache():
 CONVERSATIONS: dict = {}
 MAX_HISTORY = 20
 SESSION_TTL = 86400  # 24h
-SAVE_INTERVAL = 4  # N発言ごとにNotionに保存
+SAVE_INTERVAL = 2  # N発言ごとにNotionに保存（即時性重視）
 
 
 def _get_session(session_id: Optional[str]) -> tuple:
@@ -1905,10 +1905,7 @@ def _handle_pending_news_feedback(sid: str, text: str) -> Optional[dict]:
         msg += "趣向を Notion メモ（[ニュースFB]）に残し、次回以降のニュースの並びに反映します。"
     else:
         msg += "お言葉は伺いましたが、メモ保存に失敗しました。お手数ですがまたあとでお願いできますと幸いです。"
-    if more:
-        msg += f"（重め: {', '.join(more[:3])}）"
-    if less:
-        msg += f"（控えめ: {', '.join(less[:3])}）"
+    # 内部データ（好みカテゴリ）はユーザーに表示しない
     return {"intent": "news_feedback", "message": msg, "saved": saved}
 
 
@@ -3266,7 +3263,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - upcoming: 今週・今後の**幅広い**予定確認（7日以上の塊）。「今週まとめて」など
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
-- think: 整理して・優先順位・何から・頭の中
+- think: 「整理して」「優先順位つけて」「何からやる？」「頭の中を整理」など**思考の整理**を求める場合のみ。「タスクを出して」「タスク見せて」「タスク一覧」は**todayであってthinkではない**
 - sleep_bedtime: 就寝のあいさつ・寝る宣言。「おやすみ」「寝ます」「そろそろ寝る」など短い発言
 - sleep_wake: 起床のあいさつ。「おはよう」「起きた」など短い発言（長文に予定の相談が混じる場合はanswer）
 - health_go: 外出の挨拶。「行ってきます」「いってきます」「出かけます」など
@@ -3311,6 +3308,9 @@ Few-shot例:
 "午後の予定教えて" → {{"intent":"day_view","title":"","content":"","date":""}}
 "今日のタスクは？" → {{"intent":"today","title":"","content":"","date":""}}
 "今日やることリスト" → {{"intent":"today","title":"","content":"","date":""}}
+"タスクを出して" → {{"intent":"today","title":"","content":"","date":""}}
+"タスク一覧" → {{"intent":"today","title":"","content":"","date":""}}
+"タスク見せて" → {{"intent":"today","title":"","content":"","date":""}}
 "明日リクルートはやらない" → {{"intent":"day_defer","title":"リクルート","content":"","date":""}}
 "企画書は今日やらないことにして" → {{"intent":"day_defer","title":"企画書","content":"","date":""}}
 "リクルートは明日やることに戻して" → {{"intent":"day_undefer","title":"リクルート","content":"","date":""}}
@@ -3652,7 +3652,8 @@ def _fetch_brain() -> dict:
             name = title[0]["plain_text"] if title else "(無題)"
             content_rt = row["properties"].get("内容", {}).get("rich_text", [])
             content = content_rt[0]["plain_text"] if content_rt else ""
-            result.append({"title": name, "content": content})
+            if not name.startswith("[ニュースFB]"):
+                result.append({"title": name, "content": content})
         return result
 
     def _q_tasks():
@@ -3975,8 +3976,13 @@ def chat(req: ChatRequest):
             except Exception as e:
                 logger.error("[slack_task] Notion save failed: %s", e)
 
-    # --- Geminiでintent分類（会話履歴を含めて文脈判断） ---
-    classified = _classify_intent_via_gemini(text, session_id=sid)
+    # --- Geminiでintent分類 + brain取得を並列実行 ---
+    from concurrent.futures import ThreadPoolExecutor as _ChatTPE
+    with _ChatTPE(max_workers=2) as _chat_pool:
+        _classify_future = _chat_pool.submit(_classify_intent_via_gemini, text, sid)
+        _brain_future = _chat_pool.submit(_fetch_brain)
+    classified = _classify_future.result()
+    _prefetched_brain = _brain_future.result()
     intent = classified.get("intent", "unknown")
     logger.info("[chat] input=%s | classified=%s", text, classified)
 
@@ -4229,6 +4235,50 @@ def chat(req: ChatRequest):
                 "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in found[:5]],
             })
         else:
+            # フォールバック: クエリを短縮して再検索
+            words = [w for w in re.split(r'[\s、。,./]+', query) if len(w) >= 2]
+            for w in words[:3]:
+                if w != query:
+                    found = _search_and_archive(w)
+                    if found:
+                        break
+            if len(found) == 1:
+                _archive_page(found[0]["page_id"])
+                if sid in CONVERSATIONS and CONVERSATIONS[sid].get("last_task_page_id") == found[0]["page_id"]:
+                    CONVERSATIONS[sid]["last_task_page_id"] = None
+                return _respond({"intent": "done", "message": f"かしこまりました。「{found[0]['title']}」をアーカイブしました。", "saved": False, "archived": True})
+            if len(found) > 1:
+                items_text = "\n".join(f"・{f['title']}（{f['db']}）" for f in found[:5])
+                return _respond({
+                    "intent": "done",
+                    "message": f"該当が{len(found)}件あります。どれをアーカイブしますか？\n{items_text}",
+                    "saved": False, "archived": False,
+                    "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in found[:5]],
+                })
+            # それでも見つからない場合、直近タスク一覧を表示
+            try:
+                recent_tasks = _notion_post(f"/databases/{DB['Tasks']}/query", {
+                    "sorts": [{"timestamp": "created_time", "direction": "descending"}],
+                    "page_size": 5,
+                })
+                task_list = []
+                for row in recent_tasks.get("results", []):
+                    if row.get("archived"):
+                        continue
+                    t = row["properties"]["名前"]["title"]
+                    name = t[0]["plain_text"] if t else ""
+                    if name:
+                        task_list.append({"page_id": row["id"], "title": name, "db": "Tasks"})
+                if task_list:
+                    items_text = "\n".join(f"・{f['title']}" for f in task_list[:5])
+                    return _respond({
+                        "intent": "done",
+                        "message": f"「{query}」に該当するアイテムが見つかりませんでした。\nこちらの中にありますか？\n{items_text}",
+                        "saved": False, "archived": False,
+                        "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in task_list[:5]],
+                    })
+            except Exception:
+                pass
             return _respond({"intent": "done", "message": f"「{query}」に該当するアイテムが見つかりませんでした。", "saved": False, "archived": False})
 
     # --- debug (バグ報告) ---
@@ -4354,7 +4404,7 @@ def chat(req: ChatRequest):
         return _respond({"intent": "answer", "message": clock_reply, "saved": False})
 
     try:
-        brain = _fetch_brain()
+        brain = _prefetched_brain
     except Exception:
         brain = {"profile": [], "memos": [], "tasks": [], "ideas": [], "schedule": [], "sleep": [], "minutes": []}
 

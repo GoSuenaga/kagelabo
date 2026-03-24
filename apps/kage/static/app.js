@@ -245,7 +245,7 @@ async function get(path) {
 
 // ── Response renderer ─────────────────────────────
 const BADGE = {
-  memo:'📝 メモ', minutes:'📋 議事録', idea:'💡 アイデア', task:'✅ タスク', schedule:'📅 予定', profile:'🧠 記憶',
+  minutes:'📋 議事録', task:'✅ タスク', profile:'🧠 記憶',
   done:'🗑️ 完了', debug:'🐛 バグ報告',
   sleep_bedtime:'💤 就寝', sleep_wake:'🌅 起床', health_go:'🚪 外出', health_back:'🏠 帰宅',
   task:'✅ タスク',
