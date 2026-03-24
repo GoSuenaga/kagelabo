@@ -24,7 +24,10 @@ prompt_cache.json
 
 # Media (large files — stored separately)
 output/
-clients/
+# Any */clients/ tree: local assets (gitignored). Tracked exceptions: README.md only.
+**/clients/**
+!**/clients/**/
+!**/clients/**/README.md
 *.mp4
 *.mp3
 *.wav
@@ -38,3 +41,14 @@ vantan_ad_workflow.yml
 *.gs
 
 # KAGE は apps/kage（モノレポ）
+
+# Runtime state (auto-generated, local only)
+control_panel_state.json
+**/state/
+**/briefs/
+cartridges/
+**/cartridge_meta.json
+**/cartridge_registry.json
+
+# Workflow CSV exports (local)
+workflow_002_sheet.csv

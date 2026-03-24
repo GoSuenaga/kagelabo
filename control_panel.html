@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kage-lab</title>
+<link rel="stylesheet" href="assets/kage-lab-theme.css">
+<style>
+  :root {
+    --green: var(--kl-green);
+    --yellow: var(--kl-yellow);
+    --text2: var(--kl-text-muted);
+    --blue: var(--kl-blue);
+  }
+  .kl-topbar .sub { font-size: 0.8em; color: var(--kl-text-muted); margin-left: auto; }
+  .kl-container { max-width: 1100px; }
+
+  .card.launch-host { position: relative; padding-bottom: 28px; }
+  .launch-bar {
+    display: none; margin-top: 8px; background: var(--kl-bg-elevated); border: 1px solid var(--kl-border);
+    border-radius: 6px; padding: 8px 10px; font-family: 'SF Mono', 'Menlo', monospace;
+    font-size: 0.78em; color: var(--kl-yellow); position: relative; cursor: pointer;
+    word-break: break-all; line-height: 1.5;
+  }
+  .launch-bar::before { content: '$ '; color: var(--kl-text-muted); }
+  .launch-bar .copy-hint {
+    position: absolute; top: 8px; right: 8px; font-size: 0.85em; color: var(--kl-text-muted);
+    font-family: -apple-system, sans-serif;
+  }
+  .launch-bar.copied .copy-hint { color: var(--kl-green); }
+  .card.offline .launch-bar { display: block; }
+
+  .card-url { font-size: 0.7em; color: var(--kl-text-muted); position: absolute; bottom: 6px; right: 12px; }
+  .dot {
+    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+  }
+  .dot-live { background: var(--kl-green); box-shadow: 0 0 6px var(--kl-green); }
+  .dot-cloud { background: var(--kl-blue); box-shadow: 0 0 6px rgba(90,159,212,0.35); }
+  .dot-off { background: var(--kl-surface-2); }
+  .dot-checking { background: var(--kl-yellow); animation: pulse 1.2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+  a.card { display: flex; }
+  .card.offline { opacity: 0.45; }
+  .card.offline:hover { border-color: var(--kl-border) !important; background: var(--kl-surface) !important; cursor: default; }
+</style>
+</head>
+<body class="kl-surface-body">
+
+<div class="kl-topbar">
+  <h1><span class="kl-brand-mark">影</span> kage-lab</h1>
+  <span class="sub" id="status-msg">checking...</span>
+</div>
+
+<div class="kl-container">
+
+  <div class="kl-group-title kl-group-rag">RAG / Static Image QC</div>
+  <div class="kl-app-lane kl-group-rag">
+    <div class="kl-card card launch-host" id="card-rag" data-url="http://localhost:8000" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/rag-images && python3 -m uvicorn app:app --host 0.0.0.0 --port 8000">
+      <div class="kl-card-icon">🎨</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">RAG Creative Studio <span class="kl-card-ver">v2</span></div>
+        <div class="kl-card-desc">広告バナーQC — 画像バージョン管理・コピー編集・修正ログ</div>
+        <div class="launch-bar" onclick="event.stopPropagation(); copyCmd(this)"><span class="cmd-text"></span><span class="copy-hint">click to copy</span></div>
+      </div>
+      <div class="dot dot-checking" id="dot-rag"></div>
+      <span class="card-url">:8000</span>
+    </div>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>リクルートエージェント向けバナーの QC。プロンプト／コピー編集、OK・NG、納品エクスポート。</dd>
+        <dt>リポジトリ</dt>
+        <dd><code>kage-lab</code> モノレポ内 <code>apps/rag-images/</code></dd>
+        <dt>API / LLM</dt>
+        <dd>FastAPI、fal.ai <strong>Flux Pro</strong>（画像）、Gemini（プロンプト英訳 等）</dd>
+        <dt>言語</dt>
+        <dd>Python 3</dd>
+        <dt>データ</dt>
+        <dd><code>briefs/*.xlsx</code> カートリッジ、<code>state/*</code> QC状態、<code>clients/rag/</code> ブリーフ原本</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-group-title kl-group-vantan">VANTAN / Video Production</div>
+  <div class="kl-app-lane kl-group-vantan">
+    <div class="kl-card card launch-host" id="card-vlog" data-url="http://localhost:8501" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/vantan-video && streamlit run vlog_app.py">
+      <div class="kl-card-icon">🎬</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">Vlog 動画生成 UI <span class="kl-card-ver">v1</span></div>
+        <div class="kl-card-desc">Streamlit — Vlog風広告の生成・プレビュー</div>
+        <div class="launch-bar" onclick="event.stopPropagation(); copyCmd(this)"><span class="cmd-text"></span><span class="copy-hint">click to copy</span></div>
+      </div>
+      <div class="dot dot-checking" id="dot-vlog"></div>
+      <span class="card-url">:8501</span>
+    </div>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>ワークフロー設定に基づく Vlog 風広告の生成 UI。DRY_RUN 対応。</dd>
+        <dt>リポジトリ</dt>
+        <dd><code>apps/vantan-video/</code>（<code>vlog_engine.py</code>、<code>vlog_app.py</code>）</dd>
+        <dt>API / LLM</dt>
+        <dd>Gemini、Veo3（fal）、ElevenLabs、Creatomate、Google Sheets</dd>
+        <dt>言語</dt>
+        <dd>Python 3</dd>
+        <dt>データ</dt>
+        <dd><code>workflow_config.json</code>、スプレッドシート、<code>clients/vantan/</code>（SE・BGM・ロゴ・ローカル専用）</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-app-lane kl-group-vantan">
+    <a class="kl-card card" data-url="https://docs.google.com/spreadsheets/d/1gVGbo_fKC7sQ_B06P4M15VWn9XTMKOyKuv_Fi0VfJlc/" data-cloud="true">
+      <div class="kl-card-icon">📋</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">絵コンテスプシ <span class="kl-card-ver">wf002</span></div>
+        <div class="kl-card-desc">スクール別親子広告16パターン台本</div>
+      </div>
+      <div class="dot dot-cloud"></div>
+    </a>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>workflow_002 の台本・カット設計のマスター（絵コンテ・ナレーション等）。</dd>
+        <dt>システム</dt>
+        <dd>Google Sheets（クラウド）</dd>
+        <dt>連携</dt>
+        <dd>エクスポートスクリプト・ダッシュボード生成と連携</dd>
+        <dt>データ</dt>
+        <dd>スプシ上の行データ（スクール・カット・プロンプト列）</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-app-lane kl-group-vantan">
+    <a class="kl-card card" data-url="https://docs.google.com/spreadsheets/d/1yyvxMYsaChW1nnnua1owfRuk673keHkoK3zvVVnIDKQ/" data-cloud="true">
+      <div class="kl-card-icon">📋</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">Vlogマスタースプシ <span class="kl-card-ver">wf001</span></div>
+        <div class="kl-card-desc">Vlog風広告20本マスター（完了）</div>
+      </div>
+      <div class="dot dot-cloud"></div>
+    </a>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>初回ワークフロー（20本）のマスターシート。</dd>
+        <dt>システム</dt>
+        <dd>Google Sheets</dd>
+        <dt>データ</dt>
+        <dd>完成済みキャンペーンの台本・メタデータ</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-group-title kl-group-kage">KAGE / Secretary</div>
+  <div class="kl-app-lane kl-group-kage">
+    <a class="kl-card card" data-url="https://notion-secretary-api-production.up.railway.app/app" data-cloud="true">
+      <div class="kl-card-icon">🤖</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">KAGE（影秘書） <span class="kl-card-ver" id="kage-ver">v…</span></div>
+        <div class="kl-card-desc">Railway — Notion連携チャット秘書</div>
+      </div>
+      <div class="dot dot-cloud"></div>
+    </a>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>Notion をハブにしたチャット型ビジネス秘書 API・UI。</dd>
+        <dt>リポジトリ</dt>
+        <dd><code>apps/kage/</code></dd>
+        <dt>API / LLM</dt>
+        <dd>FastAPI、Notion API、OpenAI / LLM（アプリ設定に準拠）</dd>
+        <dt>言語</dt>
+        <dd>Python 3（バックエンド）、HTML/JS（静的 UI）</dd>
+        <dt>データ</dt>
+        <dd>Notion データベース、環境変数・Railway シークレット</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-group-title kl-group-tools">KageTools / 管理</div>
+  <div class="kl-app-lane kl-group-tools">
+    <a class="kl-card card" data-url="https://docs.google.com/spreadsheets/d/1-6UG15CPLt-VmbjNEFOE6tjm53vFtu6IH92vgq77bQo/" data-cloud="true">
+      <div class="kl-card-icon">📊</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">アプリカタログ</div>
+        <div class="kl-card-desc">全アプリ・成果物の一覧スプシ</div>
+      </div>
+      <div class="dot dot-cloud"></div>
+    </a>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>ラボ内アプリ・バージョン・URL を一覧管理する運用シート。</dd>
+        <dt>システム</dt>
+        <dd>Google Sheets</dd>
+        <dt>連携</dt>
+        <dd><code>sync_app_catalog.py</code> 等でリポジトリと同期可能</dd>
+        <dt>データ</dt>
+        <dd>手動／スクリプト更新の表形式メタデータ</dd>
+      </dl>
+    </aside>
+  </div>
+
+</div>
+
+<div class="kl-footer-note">kage-lab control panel · 影プロジェクト共通テーマ</div>
+
+<script>
+document.querySelectorAll('.card[data-cmd]').forEach(card => {
+  const cmdEl = card.querySelector('.cmd-text');
+  if (cmdEl) cmdEl.textContent = card.dataset.cmd;
+});
+
+function copyCmd(bar) {
+  const cmd = bar.closest('.card').dataset.cmd;
+  if (!cmd) return;
+  navigator.clipboard.writeText(cmd).then(() => {
+    bar.classList.add('copied');
+    bar.querySelector('.copy-hint').textContent = 'copied!';
+    setTimeout(() => {
+      bar.classList.remove('copied');
+      bar.querySelector('.copy-hint').textContent = 'click to copy';
+    }, 2000);
+  });
+}
+
+const LOCAL_CHECKS = [
+  { id: 'rag',  dotId: 'dot-rag',  cardId: 'card-rag',  url: 'http://localhost:8000/api/cartridges' },
+  { id: 'vlog', dotId: 'dot-vlog', cardId: 'card-vlog', url: 'http://localhost:8501' },
+];
+
+async function checkHealth(svc) {
+  const dot = document.getElementById(svc.dotId);
+  const card = document.getElementById(svc.cardId);
+  try {
+    await fetch(svc.url, { mode: 'no-cors', signal: AbortSignal.timeout(3000) });
+    dot.className = 'dot dot-live';
+    card.classList.remove('offline');
+    return true;
+  } catch {
+    dot.className = 'dot dot-off';
+    card.classList.add('offline');
+    return false;
+  }
+}
+
+async function checkAll() {
+  const results = await Promise.all(LOCAL_CHECKS.map(checkHealth));
+  const live = results.filter(Boolean).length;
+  const total = LOCAL_CHECKS.length;
+  const msg = document.getElementById('status-msg');
+  if (live === total) {
+    msg.textContent = `${live} services running`;
+    msg.style.color = 'var(--kl-green)';
+  } else if (live > 0) {
+    msg.textContent = `${live}/${total} services running`;
+    msg.style.color = 'var(--kl-yellow)';
+  } else {
+    msg.textContent = 'no local services';
+    msg.style.color = 'var(--kl-text-muted)';
+  }
+}
+
+document.querySelectorAll('.card').forEach(card => {
+  card.addEventListener('click', (e) => {
+    if (e.target.closest('.launch-bar')) return;
+    const url = card.dataset.url;
+    if (!url) return;
+    if (card.dataset.cloud === 'true') {
+      window.open(url, '_blank');
+      return;
+    }
+    if (!card.classList.contains('offline')) {
+      window.open(url, '_blank');
+    }
+  });
+});
+
+checkAll();
+setInterval(checkAll, 10000);
+
+// KAGE バージョンを Railway /health から動的取得
+(async () => {
+  const el = document.getElementById('kage-ver');
+  try {
+    const r = await fetch('https://notion-secretary-api-production.up.railway.app/health', { signal: AbortSignal.timeout(5000) });
+    const d = await r.json();
+    const v = d.kage_app_version || d.version;
+    if (v) el.textContent = `v${v}`;
+    else el.textContent = 'v?';
+  } catch {
+    el.textContent = 'v?';
+  }
+})();
+</script>
+</body>
+</html>

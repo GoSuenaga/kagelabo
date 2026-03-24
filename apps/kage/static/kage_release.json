@@ -1,5 +1,5 @@
 {
-  "app_version": "0.165",
-  "release_date": "2026-03-23",
-  "summary": "リポジトリモノレポ化（apps/kage・/meta パス表記更新）"
+  "app_version": "0.300",
+  "release_date": "2026-03-24",
+  "summary": "デフォルトLLMをPro 2.5に変更、会話コピーバグ修正（details要素の内容が欠落していた問題）、コントロールパネルのバージョン表示を動的取得に変更"
 }

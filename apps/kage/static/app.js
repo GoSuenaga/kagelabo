@@ -38,7 +38,7 @@ const modelModal    = document.getElementById('modelModal');
 const modelList     = document.getElementById('modelList');
 const modelClose    = document.getElementById('modelClose');
 
-let currentModel = 'gemini-2.5-flash';
+let currentModel = 'gemini-2.5-pro';
 
 // ── Helpers ───────────────────────────────────────
 function esc(s) {
@@ -1308,7 +1308,7 @@ document.getElementById('btnCopyLog').addEventListener('click', () => {
     const isUser = row.classList.contains('user');
     const bubble = row.querySelector('.bubble');
     if (!bubble) return;
-    const text = bubble.innerText.trim();
+    const text = bubble.textContent.trim();
     if (!text) return;
     lines.push(isUser ? `ボス: ${text}` : `影: ${text}`);
   });
