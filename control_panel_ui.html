@@ -1,0 +1,1073 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VANTAN Video Studio</title>
+<link rel="stylesheet" href="assets/kage-lab-theme.css">
+<style>
+:root{--bg:var(--kl-bg);--surface:var(--kl-surface);--surface2:var(--kl-surface-2);--border:var(--kl-border);--text:var(--kl-text);--text2:var(--kl-text-muted);--blue:var(--kl-blue);--green:var(--kl-green);--yellow:var(--kl-yellow);--red:var(--kl-red);--accent:var(--kl-accent)}
+*{box-sizing:border-box;margin:0;padding:0}
+body.kl-surface-body.kl-theme-vantan{font-family:-apple-system,'Hiragino Sans','Helvetica Neue',sans-serif;background:var(--bg);color:var(--text)}
+
+/* Header */
+header{position:sticky;top:0;z-index:100;background:rgba(20,24,32,0.92);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+header h1{font-size:1.1em;font-weight:700}
+header h1 .brand{color:var(--accent);margin-right:4px}
+.ver{color:var(--text2);font-size:0.7em;opacity:0.6}
+.header-stats{display:flex;gap:8px;margin-left:auto;font-size:0.78em}
+.stat-badge{padding:2px 10px;border-radius:10px;font-weight:600}
+.stat-pending{background:rgba(139,149,168,0.15);color:var(--text2)}
+.stat-ok{background:rgba(63,185,120,0.15);color:var(--green)}
+.stat-ng{background:rgba(232,93,93,0.15);color:var(--red)}
+.stat-total{background:var(--kl-accent-muted);color:var(--accent)}
+
+/* Toolbar */
+.toolbar{display:flex;gap:8px;padding:10px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;background:var(--surface)}
+.toolbar .sep{width:1px;height:20px;background:var(--border);margin:0 4px}
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:0.8em;font-weight:600;background:var(--surface);color:var(--text);transition:all 0.15s}
+.btn:hover{background:var(--surface2)}
+.btn-accent{background:var(--kl-accent-muted);border-color:var(--kl-accent-border);color:var(--accent)}
+.btn-accent:hover{background:var(--kl-accent-border)}
+.btn-green{background:rgba(63,185,120,0.15);border-color:rgba(63,185,120,0.4);color:var(--green)}
+.btn-red{background:rgba(232,93,93,0.15);border-color:rgba(232,93,93,0.4);color:var(--red)}
+.btn-danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn:disabled{opacity:0.35;cursor:not-allowed}
+.btn.active{background:var(--accent);color:#0b0d11;border-color:var(--accent)}
+
+/* Filter bar */
+.filter-bar{display:flex;gap:6px;padding:8px 20px;border-bottom:1px solid var(--border);flex-wrap:wrap;align-items:center;font-size:0.8em}
+.filter-bar .label{color:var(--text2);font-size:0.85em;margin-right:2px}
+.filter-btn{padding:3px 10px;border-radius:12px;border:1px solid var(--border);cursor:pointer;font-size:0.78em;background:none;color:var(--text2);transition:all 0.15s}
+.filter-btn:hover{background:var(--surface2);color:var(--text)}
+.filter-btn.active{background:var(--accent);color:#0b0d11;border-color:var(--accent)}
+
+/* Cartridge panel (RAG Creative Studio パターン) */
+.cartridge-panel{border-bottom:1px solid var(--border);background:linear-gradient(135deg,var(--bg) 0%,var(--surface) 100%);overflow:hidden;transition:max-height 0.4s ease,padding 0.4s ease}
+.cartridge-panel.collapsed{max-height:48px}
+.cartridge-toggle{display:flex;align-items:center;gap:10px;padding:12px 24px;cursor:pointer;font-size:13px;color:var(--accent);font-weight:600;user-select:none}
+.cartridge-toggle:hover{color:var(--kl-text)}
+.cartridge-toggle .arrow{transition:transform 0.3s;font-size:10px}
+.cartridge-panel.collapsed .arrow{transform:rotate(-90deg)}
+.cartridge-loaded-badge{font-size:11px;color:var(--green);background:rgba(63,185,120,0.15);padding:2px 8px;border-radius:8px;margin-left:8px}
+.cartridge-body{padding:0 24px 20px;display:flex;gap:16px;align-items:flex-end;flex-wrap:wrap}
+.cartridge-panel.collapsed .cartridge-body{display:none}
+.cart-section{display:flex;flex-direction:column;gap:6px}
+.cart-label{font-size:10px;color:var(--text2);text-transform:uppercase;letter-spacing:0.06em}
+.cart-select{background:var(--surface);border:1px solid var(--border);border-radius:8px;color:var(--text);padding:8px 12px;font-size:13px;min-width:320px;cursor:pointer}
+.cart-select:focus{outline:none;border-color:var(--accent)}
+.cart-btn{padding:8px 20px;border-radius:8px;border:none;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.2s}
+.cart-btn:disabled{opacity:0.4;cursor:not-allowed}
+.btn-import{background:linear-gradient(135deg,var(--accent),#8b6a3a);color:#fff;border:1px solid var(--accent)}
+.btn-import:hover:not(:disabled){box-shadow:0 0 20px rgba(184,149,106,0.3)}
+.btn-upload-cart{background:var(--surface);color:var(--accent);border:1px solid var(--border)}
+.btn-upload-cart:hover{background:var(--surface2);border-color:var(--accent)}
+.cart-info{font-size:12px;color:var(--text2);padding:4px 0;display:flex;align-items:center;gap:8px}
+.cart-info .loaded-file{color:var(--accent);font-weight:600}
+.cart-info .loaded-count{color:var(--green)}
+.cart-or{color:var(--text2);font-size:12px;padding:0 4px}
+.drop-zone{display:none;border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;color:var(--text2);font-size:12px;margin:8px 24px 16px;transition:all 0.2s;cursor:pointer}
+.drop-zone.active{display:block}
+.drop-zone.dragover{border-color:var(--accent);background:rgba(184,149,106,0.1);color:var(--accent)}
+.no-cartridge{text-align:center;padding:40px;color:var(--text2)}
+.no-cartridge .btn{margin-top:12px}
+
+/* Container */
+.container{max-width:1440px;margin:0 auto;padding:16px 20px 60px}
+
+/* Pattern section */
+.pat-section{margin-bottom:20px}
+.pat-header{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:10px 10px 0 0;cursor:pointer;transition:border-color 0.15s}
+.pat-header:hover{border-color:var(--kl-accent-border)}
+.pat-header.collapsed{border-radius:10px}
+.pat-header .pat-check{margin-right:2px}
+.pat-header .pat-id{font-weight:700;font-size:0.95em;color:var(--accent);min-width:40px}
+.pat-header .pat-school{font-size:0.82em;color:var(--text2);flex:1}
+.pat-bar-mini{width:100px;height:5px;background:var(--surface2);border-radius:3px;overflow:hidden;flex-shrink:0}
+.pat-bar-mini .fill{height:100%;border-radius:3px;transition:width 0.5s}
+.fill-idle{background:var(--surface2)}.fill-running{background:var(--blue);animation:pulse 1.5s ease-in-out infinite}.fill-done{background:var(--green)}.fill-error{background:var(--red)}.fill-stopped{background:var(--yellow)}.fill-partial{background:var(--yellow)}.fill-queued{background:var(--kl-accent)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
+.pat-header .pat-status{font-size:0.75em;font-weight:600}
+.pat-header .pat-msg{font-size:0.72em;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pat-header .pat-actions{display:flex;gap:4px}
+.pat-header .pat-actions .btn{font-size:0.7em;padding:3px 8px}
+.pat-qc-mini{display:flex;gap:3px;font-size:0.68em}
+.pat-qc-mini span{padding:1px 6px;border-radius:8px}
+
+/* Cut grid */
+.cut-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:10px;padding:12px;background:var(--bg);border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px}
+
+/* Cut card */
+.cut-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;transition:border-color 0.15s}
+.cut-card:hover{border-color:var(--kl-accent-border)}
+.cut-card.qc-approved{border-color:rgba(63,185,120,0.5)}
+.cut-card.qc-rejected{border-color:rgba(232,93,93,0.5)}
+
+.cut-card .thumb{position:relative;width:100%;aspect-ratio:9/16;background:var(--surface2);overflow:hidden}
+.cut-card .thumb video{width:100%;height:100%;object-fit:cover}
+.cut-card .thumb .placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text2);font-size:0.78em}
+.cut-card .thumb .loading{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,0.5)}
+.cut-card .thumb .loading::after{content:'';width:24px;height:24px;border:3px solid var(--accent);border-top-color:transparent;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.cut-card .badge-row{display:flex;gap:4px;padding:6px 8px;flex-wrap:wrap;align-items:center}
+.badge{display:inline-block;padding:1px 7px;border-radius:8px;font-size:0.68em;font-weight:600}
+.badge-num{background:var(--kl-accent-muted);color:var(--accent)}
+.badge-style{background:rgba(90,159,212,0.15);color:var(--blue)}
+.badge-qc-pending{background:rgba(139,149,168,0.15);color:var(--text2)}
+.badge-qc-approved{background:rgba(63,185,120,0.15);color:var(--green)}
+.badge-qc-rejected{background:rgba(232,93,93,0.15);color:var(--red)}
+.badge-edited{background:rgba(184,149,106,0.15);color:var(--accent)}
+
+.cut-card .copy-panel{padding:4px 8px 6px;font-size:0.75em}
+.cut-card .copy-nar{color:var(--text);line-height:1.4;max-height:3.2em;overflow:hidden;cursor:pointer}
+.cut-card .copy-nar:hover{max-height:none}
+.cut-card .copy-telop{color:var(--accent);font-size:0.9em;margin-top:2px}
+.cut-card .audio-row{padding:0 8px 6px}
+.cut-card .audio-row audio{width:100%;height:22px}
+.cut-card .version-row{padding:2px 8px;font-size:0.68em;color:var(--text2);display:flex;justify-content:space-between;align-items:center}
+.cut-card .action-row{display:flex;gap:4px;padding:4px 8px 8px}
+.cut-card .action-row .btn{flex:1;text-align:center;font-size:0.72em;padding:4px 2px}
+
+/* Modals */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;z-index:200;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal-inner{background:var(--surface);border:1px solid var(--border);border-radius:12px;width:90%;max-width:640px;max-height:90vh;overflow-y:auto;padding:20px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.modal-header h2{font-size:1em}
+.modal-close{background:none;border:none;color:var(--text2);font-size:1.4em;cursor:pointer;padding:4px 8px}
+.modal-close:hover{color:var(--text)}
+.modal-section{margin-bottom:14px}
+.modal-section label{display:block;font-size:0.78em;color:var(--text2);margin-bottom:4px;font-weight:600}
+.modal-section textarea,.modal-section input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:0.85em;font-family:inherit;resize:vertical}
+.modal-section textarea{min-height:60px}
+.modal-section .readonly{opacity:0.6;cursor:default}
+.modal-section .changed{border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+
+/* Version modal */
+.ver-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin:12px 0}
+.ver-thumb{position:relative;aspect-ratio:9/16;background:var(--surface2);border-radius:6px;overflow:hidden;cursor:pointer;border:2px solid transparent;transition:border-color 0.15s}
+.ver-thumb:hover{border-color:var(--kl-accent-border)}
+.ver-thumb.selected{border-color:var(--accent);box-shadow:0 0 12px var(--kl-accent-muted)}
+.ver-thumb video{width:100%;height:100%;object-fit:cover}
+.ver-thumb .ver-label{position:absolute;bottom:4px;left:4px;background:rgba(0,0,0,0.7);color:var(--text);padding:1px 6px;border-radius:4px;font-size:0.68em}
+
+/* Corrections modal */
+.corr-list{max-height:60vh;overflow-y:auto}
+.corr-entry{border-bottom:1px solid var(--border);padding:8px 0}
+.corr-entry:last-child{border-bottom:none}
+.corr-meta{font-size:0.72em;color:var(--text2);margin-bottom:4px}
+.corr-meta .corr-field{color:var(--accent);font-weight:600}
+.corr-diff{font-size:0.78em}
+.corr-diff .before{color:var(--red);text-decoration:line-through;margin-right:8px}
+.corr-diff .after{color:var(--green)}
+
+/* Toast */
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 20px;font-size:0.85em;z-index:300;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.toast.show{opacity:1}
+
+/* Error */
+.err-box{background:rgba(248,81,73,0.1);border:1px solid var(--red);border-radius:6px;padding:8px 12px;margin-bottom:8px;font-size:0.78em;color:var(--red);display:none}
+.err-box.show{display:block}
+
+@media(max-width:800px){
+  .cut-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
+  .header-stats{display:none}
+  .toolbar{padding:8px 12px}
+  .filter-bar{padding:6px 12px}
+  .container{padding:12px}
+}
+</style>
+</head>
+<body class="kl-surface-body kl-theme-vantan">
+
+<header>
+  <h1><span class="brand">影</span>VANTAN Video Studio</h1>
+  <span class="ver">v1.2</span>
+  <div class="header-stats" id="header-stats"></div>
+</header>
+
+<!-- Cartridge Panel (RAG パターン: XLSX ローカル読込) -->
+<div class="cartridge-panel" id="cartridge-panel">
+  <div class="cartridge-toggle" onclick="toggleCartridge()">
+    <span class="arrow">&#9660;</span>
+    <span>&#128203; 設計図カートリッジ</span>
+    <span class="cartridge-loaded-badge" id="cart-loaded-badge" style="display:none"></span>
+  </div>
+  <div class="cartridge-body">
+    <div class="cart-section">
+      <span class="cart-label">設計図ファイル (.xlsx)</span>
+      <select class="cart-select" id="cart-select">
+        <option value="">-- ファイルを選択 --</option>
+      </select>
+    </div>
+    <button class="cart-btn btn-import" id="btn-import" disabled onclick="loadCartridge()">
+      インポート
+    </button>
+    <span class="cart-or">or</span>
+    <button class="cart-btn btn-upload-cart" onclick="toggleDropZone()">
+      ファイルをアップロード
+    </button>
+    <div class="cart-section" style="flex-grow:1">
+      <div class="cart-info" id="cart-info"></div>
+    </div>
+  </div>
+  <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
+    ここにxlsxファイルをドラッグ&ドロップ、またはクリックして選択
+    <input type="file" id="file-input" accept=".xlsx" style="display:none" onchange="handleFileUpload(this.files[0])">
+  </div>
+</div>
+
+<div class="toolbar">
+  <button class="btn" onclick="selectAllPats()">全選択</button>
+  <button class="btn" onclick="selectNonePats()">解除</button>
+  <span id="sel-count" style="color:var(--text2);font-size:0.8em"></span>
+  <div class="sep"></div>
+  <button class="btn btn-accent" onclick="batchGenerate(['video','narration'])">選択 → 素材生成</button>
+  <button class="btn btn-green" onclick="batchGenerate(['compose'])">選択 → 合成</button>
+  <button class="btn btn-danger" onclick="stopAll()">全停止</button>
+  <div class="sep"></div>
+  <button class="btn" onclick="approveAllVisible()">全OK</button>
+  <button class="btn" onclick="pendingAllVisible()">全Pending</button>
+  <div class="sep"></div>
+  <button class="btn" onclick="openCorrectionsAll()">修正ログ</button>
+  <button class="btn" onclick="reloadSheets()" style="margin-left:auto">XLSX再読込</button>
+</div>
+
+<div class="filter-bar">
+  <span class="label">Status:</span>
+  <button class="filter-btn active" onclick="setFilter('status','all',this)">All</button>
+  <button class="filter-btn" onclick="setFilter('status','pending',this)">Pending</button>
+  <button class="filter-btn" onclick="setFilter('status','approved',this)">OK</button>
+  <button class="filter-btn" onclick="setFilter('status','rejected',this)">NG</button>
+  <div class="sep"></div>
+  <span class="label">School:</span>
+  <button class="filter-btn active" onclick="setFilter('school','all',this)">全スクール</button>
+  <span id="school-filters"></span>
+  <div class="sep"></div>
+  <span class="label">生成:</span>
+  <button class="filter-btn active" onclick="setFilter('gen','all',this)">All</button>
+  <button class="filter-btn" onclick="setFilter('gen','done',this)">完成</button>
+  <button class="filter-btn" onclick="setFilter('gen','partial',this)">途中</button>
+  <button class="filter-btn" onclick="setFilter('gen','none',this)">未着手</button>
+</div>
+
+<div class="container">
+  <div id="err-box" class="err-box"></div>
+  <div id="patterns-container">読み込み中...</div>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <h2 id="edit-modal-title">カット編集</h2>
+      <button class="modal-close" onclick="closeModal('edit-modal')">&times;</button>
+    </div>
+    <div class="modal-section">
+      <label>ナレーション</label>
+      <textarea id="edit-narration" rows="3"></textarea>
+    </div>
+    <div class="modal-section">
+      <label>テロップ</label>
+      <input id="edit-telop" type="text">
+    </div>
+    <div class="modal-section">
+      <label>映像プロンプト（日本語）</label>
+      <textarea id="edit-prompt-jp" rows="3"></textarea>
+    </div>
+    <div class="modal-section">
+      <label>映像プロンプト（English — Veo3用）</label>
+      <textarea id="edit-prompt-en" rows="3"></textarea>
+    </div>
+    <div class="modal-section">
+      <label>修正理由（任意）</label>
+      <input id="edit-reason" type="text" placeholder="変更した理由を簡潔に">
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="resetEditModal()">リセット</button>
+      <button class="btn btn-accent" onclick="saveEdit()">保存</button>
+      <button class="btn btn-green" onclick="saveEditAndRegen()">保存 & 再生成</button>
+    </div>
+  </div>
+</div>
+
+<!-- Version Modal -->
+<div class="modal-bg" id="ver-modal">
+  <div class="modal-inner">
+    <div class="modal-header">
+      <h2 id="ver-modal-title">バージョン一覧</h2>
+      <button class="modal-close" onclick="closeModal('ver-modal')">&times;</button>
+    </div>
+    <div class="ver-grid" id="ver-grid"></div>
+  </div>
+</div>
+
+<!-- Corrections Modal -->
+<div class="modal-bg" id="corr-modal">
+  <div class="modal-inner" style="max-width:700px">
+    <div class="modal-header">
+      <h2 id="corr-modal-title">修正ログ</h2>
+      <button class="modal-close" onclick="closeModal('corr-modal')">&times;</button>
+    </div>
+    <div class="corr-list" id="corr-list"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// State
+// ============================================================
+var DATA = {};
+var ACTIVE_CID = '';
+var RENDERED = false;
+var FILTERS = { status: 'all', school: 'all', gen: 'all' };
+var EDIT_PAT = '', EDIT_CUT = '';
+var VER_PAT = '', VER_CUT = '';
+
+// ============================================================
+// Data fetching
+// ============================================================
+function fetchStatus() {
+  var x = new XMLHttpRequest();
+  x.open('GET', '/api/status');
+  x.onload = function() {
+    if (x.status === 200) {
+      try {
+        var resp = JSON.parse(x.responseText);
+        DATA = resp.patterns || resp; // カートリッジ対応
+        ACTIVE_CID = resp.active_cid || '';
+        if (!ACTIVE_CID || Object.keys(DATA).length === 0) {
+          showNoCartridge();
+        } else {
+          hideNoCartridge();
+          renderAll();
+        }
+        hideErr();
+      }
+      catch(e) { showErr('JSON parse: ' + e.message); }
+    } else { showErr('API error: ' + x.status); }
+  };
+  x.onerror = function() { showErr('サーバー接続失敗'); };
+  x.send();
+}
+
+function showNoCartridge() {
+  document.getElementById('patterns-container').innerHTML =
+    '<div class="no-cartridge">' +
+    '<div style="font-size:1.2em;margin-bottom:8px">カートリッジ未読込</div>' +
+    '<div>上の設計図カートリッジから XLSX ファイルをインポートしてください</div>' +
+    '</div>';
+  RENDERED = false;
+}
+function hideNoCartridge() {}
+
+function showErr(m) { var e = document.getElementById('err-box'); e.textContent = m; e.classList.add('show'); }
+function hideErr() { document.getElementById('err-box').classList.remove('show'); }
+
+// ============================================================
+// Rendering
+// ============================================================
+function renderAll() {
+  renderHeaderStats();
+  renderSchoolFilters();
+  if (!RENDERED) {
+    renderPatterns();
+    RENDERED = true;
+  } else {
+    updatePatterns();
+  }
+}
+
+function renderHeaderStats() {
+  var pending = 0, ok = 0, ng = 0, total = 0;
+  Object.values(DATA).forEach(function(d) {
+    if (d.qc_counts) {
+      pending += d.qc_counts.pending || 0;
+      ok += d.qc_counts.approved || 0;
+      ng += d.qc_counts.rejected || 0;
+    }
+    total += d.total_cuts || 0;
+  });
+  document.getElementById('header-stats').innerHTML =
+    '<span class="stat-badge stat-pending">Pending ' + pending + '</span>' +
+    '<span class="stat-badge stat-ok">OK ' + ok + '</span>' +
+    '<span class="stat-badge stat-ng">NG ' + ng + '</span>' +
+    '<span class="stat-badge stat-total">' + total + ' cuts</span>';
+}
+
+function renderSchoolFilters() {
+  var schools = {};
+  Object.values(DATA).forEach(function(d) { if (d.school) schools[d.school] = true; });
+  var el = document.getElementById('school-filters');
+  if (el.children.length > 0) return; // already rendered
+  Object.keys(schools).sort().forEach(function(s) {
+    var short = s.replace(/バンタン|アカデミー|KADOKAWA/g, '').trim().substring(0, 6);
+    var btn = document.createElement('button');
+    btn.className = 'filter-btn';
+    btn.textContent = short || s.substring(0, 6);
+    btn.title = s;
+    btn.onclick = function() { setFilter('school', s, btn); };
+    el.appendChild(btn);
+  });
+}
+
+function renderPatterns() {
+  var keys = Object.keys(DATA).sort();
+  if (keys.length === 0) {
+    document.getElementById('patterns-container').innerHTML = '<div style="padding:40px;text-align:center;color:var(--text2)">パターンなし</div>';
+    return;
+  }
+  var html = '';
+  keys.forEach(function(k) { html += patternSectionHTML(k, DATA[k]); });
+  document.getElementById('patterns-container').innerHTML = html;
+}
+
+function updatePatterns() {
+  var keys = Object.keys(DATA).sort();
+  keys.forEach(function(k) { updatePatternSection(k, DATA[k]); });
+}
+
+function patternSectionHTML(k, d) {
+  var pct = d.has_final ? 100 : (d.total_cuts > 0 ? Math.round(d.videos / d.total_cuts * 100) : 0);
+  var st = d.status || 'idle';
+  var fc = fillClass(st, d);
+  var statusBadge = statusLabel(st, d);
+  var qc = d.qc_counts || {};
+  var isRunning = st === 'running';
+
+  var html = '<div class="pat-section" id="pat-' + k + '" data-school="' + esc(d.school) + '">';
+  html += '<div class="pat-header" id="pathdr-' + k + '" onclick="togglePat(\'' + k + '\')">';
+  html += '<input type="checkbox" class="pat-check" data-key="' + k + '" onclick="event.stopPropagation();updateSelCount()">';
+  html += '<span class="pat-id">' + k + '</span>';
+  html += '<span class="pat-school">' + esc(d.school || '') + ' — ' + esc(d.field || '') + '（' + esc(d.child || '') + '）</span>';
+  html += '<div class="pat-qc-mini" id="patqc-' + k + '">';
+  if (qc.approved) html += '<span class="badge-qc-approved">' + qc.approved + ' OK</span>';
+  if (qc.rejected) html += '<span class="badge-qc-rejected">' + qc.rejected + ' NG</span>';
+  if (qc.pending) html += '<span class="badge-qc-pending">' + qc.pending + '</span>';
+  html += '</div>';
+  html += '<div class="pat-bar-mini"><div class="fill ' + fc + '" id="patbar-' + k + '" style="width:' + pct + '%"></div></div>';
+  html += '<span class="pat-status" id="patst-' + k + '">' + statusBadge + '</span>';
+  html += '<span class="pat-msg" id="patmsg-' + k + '">' + esc(d.message || '') + '</span>';
+  html += '<div class="pat-actions" onclick="event.stopPropagation()">';
+  if (isRunning) {
+    html += '<button class="btn btn-danger" onclick="stopPat(\'' + k + '\')">停止</button>';
+  } else {
+    // 未生成: 素材生成
+    if (d.videos === 0 && d.audio === 0) {
+      html += '<button class="btn btn-accent" onclick="genPat(\'' + k + '\',[\'video\',\'narration\'])">素材生成</button>';
+    }
+    // 動画途中: 続きから生成
+    if (d.videos > 0 && d.videos < d.total_cuts) {
+      html += '<button class="btn btn-accent" onclick="genPat(\'' + k + '\',[\'video\'])">動画 続き</button>';
+    }
+    // 音声なし: 音声生成
+    if (d.videos > 0 && d.audio === 0) {
+      html += '<button class="btn btn-accent" onclick="genPat(\'' + k + '\',[\'narration\'])">音声生成</button>';
+    }
+    // 合成可能
+    if (!d.has_final && d.videos >= d.total_cuts && d.audio >= d.total_cuts) {
+      html += '<button class="btn btn-green" onclick="genPat(\'' + k + '\',[\'compose\'])">合成</button>';
+    }
+    // 何か生成済みなら再生成ボタン
+    if (d.videos > 0 || d.has_final) {
+      html += '<button class="btn" onclick="regenPat(\'' + k + '\',\'video\')" title="動画だけ削除して再生成">動画やり直し</button>';
+      html += '<button class="btn" onclick="regenPat(\'' + k + '\',\'audio\')" title="音声だけ削除して再生成">音声やり直し</button>';
+      html += '<button class="btn btn-red" onclick="regenPat(\'' + k + '\',\'all\')" title="全素材を削除して再生成">全やり直し</button>';
+    }
+  }
+  html += '</div></div>';
+
+  // Cut grid (collapsed by default if more than 4 patterns)
+  var collapsed = Object.keys(DATA).length > 4;
+  html += '<div class="cut-grid" id="patgrid-' + k + '" style="' + (collapsed ? 'display:none' : '') + '">';
+  (d.cuts || []).forEach(function(c) { html += cutCardHTML(k, c, d); });
+  html += '</div></div>';
+  return html;
+}
+
+function cutCardHTML(k, c, d) {
+  var num = c.num;
+  var hasVid = c.has_video;
+  var hasAud = c.has_audio;
+  var qc = c.qc_status || 'pending';
+  var isEdited = c.narration_override || c.telop_override || c.prompt_jp_override || c.prompt_en_override;
+  var vidUrl = hasVid ? '/media/' + ACTIVE_CID + '/' + k + '/videos/カット' + num.padStart(2, '0') + '.mp4' : '';
+  var audUrl = hasAud ? '/media/' + ACTIVE_CID + '/' + k + '/audio/カット' + num.padStart(2, '0') + '.mp3' : '';
+  var narText = c.narration_override || c.narration || '';
+  var telopText = c.telop_override || c.telop || '';
+
+  var html = '<div class="cut-card qc-' + qc + '" id="cut-' + k + '-' + num + '" data-qc="' + qc + '">';
+
+  // Thumbnail
+  html += '<div class="thumb">';
+  if (hasVid) {
+    html += '<video src="' + vidUrl + '?t=' + Date.now() + '" preload="metadata" muted onclick="this.paused?this.play():this.pause()"></video>';
+  } else {
+    html += '<div class="placeholder">未生成</div>';
+  }
+  html += '</div>';
+
+  // Badge row
+  html += '<div class="badge-row">';
+  html += '<span class="badge badge-num">#' + num.padStart(2, '0') + '</span>';
+  if (hasVid) html += '<span class="badge badge-style">cinema</span>';
+  html += '<span class="badge badge-qc-' + qc + '">' + (qc === 'approved' ? 'OK' : qc === 'rejected' ? 'NG' : '—') + '</span>';
+  if (isEdited) html += '<span class="badge badge-edited">edited</span>';
+  html += '</div>';
+
+  // Copy
+  html += '<div class="copy-panel">';
+  html += '<div class="copy-nar" title="クリックで展開">' + esc(narText) + '</div>';
+  if (telopText) html += '<div class="copy-telop">' + esc(telopText) + '</div>';
+  html += '</div>';
+
+  // Audio
+  if (hasAud) {
+    html += '<div class="audio-row"><audio src="' + audUrl + '" controls preload="metadata"></audio></div>';
+  }
+
+  // Version info
+  var vers = c.video_versions || 0;
+  if (vers > 1) {
+    html += '<div class="version-row"><span onclick="openVerModal(\'' + k + '\',\'' + num + '\')" style="cursor:pointer;text-decoration:underline">v' + String(vers).padStart(3, '0') + ' / ' + vers + ' versions</span></div>';
+  }
+
+  // Actions
+  html += '<div class="action-row">';
+  html += '<button class="btn btn-accent" onclick="openEditModal(\'' + k + '\',\'' + num + '\')">Edit</button>';
+  html += '<button class="btn" onclick="regenCut(\'' + k + '\',\'' + num + '\')">Regen</button>';
+  html += '<button class="btn btn-green" onclick="setQC(\'' + k + '\',\'' + num + '\',\'approved\')">OK</button>';
+  html += '<button class="btn btn-red" onclick="setQC(\'' + k + '\',\'' + num + '\',\'rejected\')">NG</button>';
+  html += '</div>';
+
+  html += '</div>';
+  return html;
+}
+
+function updatePatternSection(k, d) {
+  var pct = d.has_final ? 100 : (d.total_cuts > 0 ? Math.round(d.videos / d.total_cuts * 100) : 0);
+  var st = d.status || 'idle';
+  var fc = fillClass(st, d);
+  var bar = document.getElementById('patbar-' + k);
+  if (bar) { bar.style.width = pct + '%'; bar.className = 'fill ' + fc; }
+  var stEl = document.getElementById('patst-' + k);
+  if (stEl) stEl.innerHTML = statusLabel(st, d);
+  var msg = document.getElementById('patmsg-' + k);
+  if (msg) msg.textContent = d.message || '';
+
+  // QC mini badges
+  var qcEl = document.getElementById('patqc-' + k);
+  if (qcEl) {
+    var qc = d.qc_counts || {};
+    var h = '';
+    if (qc.approved) h += '<span class="badge-qc-approved">' + qc.approved + ' OK</span>';
+    if (qc.rejected) h += '<span class="badge-qc-rejected">' + qc.rejected + ' NG</span>';
+    if (qc.pending) h += '<span class="badge-qc-pending">' + qc.pending + '</span>';
+    qcEl.innerHTML = h;
+  }
+
+  // Update cut cards (only qc badges + has_video/audio status — avoid replacing media elements)
+  (d.cuts || []).forEach(function(c) {
+    var card = document.getElementById('cut-' + k + '-' + c.num);
+    if (!card) return;
+    var qc = c.qc_status || 'pending';
+    card.className = 'cut-card qc-' + qc;
+    card.setAttribute('data-qc', qc);
+  });
+
+  applyFilters();
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function fillClass(st, d) {
+  if (st === 'running') return 'fill-running';
+  if (st === 'queued') return 'fill-queued';
+  if (d.has_final) return 'fill-done';
+  if (st === 'error') return 'fill-error';
+  if (st === 'stopped') return 'fill-stopped';
+  if (d.videos > 0) return 'fill-partial';
+  return 'fill-idle';
+}
+function statusLabel(st, d) {
+  if (st === 'running') return '<span style="color:var(--blue)">実行中</span>';
+  if (d.has_final) return '<span style="color:var(--green)">完成</span>';
+  if (st === 'error') return '<span style="color:var(--red)">エラー</span>';
+  if (st === 'stopped') return '<span style="color:var(--yellow)">停止</span>';
+  if (st === 'queued') return '<span style="color:var(--accent)">待機</span>';
+  if (d.videos > 0) return d.videos + '/' + d.total_cuts;
+  return '未着手';
+}
+function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function toast(msg, dur) {
+  var t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(function() { t.classList.remove('show'); }, dur || 2500);
+}
+
+// ============================================================
+// Filters
+// ============================================================
+function setFilter(type, val, btn) {
+  FILTERS[type] = val;
+  // Update button active state
+  var bar = btn.parentElement;
+  var group = type;
+  bar.querySelectorAll('.filter-btn').forEach(function(b) {
+    // Only toggle within same filter group
+    if (b.onclick && b.onclick.toString().indexOf("'" + type + "'") > -1) {
+      b.classList.remove('active');
+    }
+  });
+  // Simpler approach: toggle within siblings that share same filter type
+  var sibs = btn.parentElement.querySelectorAll('.filter-btn');
+  sibs.forEach(function(b) {
+    var bOnclick = b.getAttribute('onclick') || '';
+    if (bOnclick.indexOf("'" + type + "'") > -1) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+  applyFilters();
+}
+
+function applyFilters() {
+  document.querySelectorAll('.pat-section').forEach(function(sec) {
+    var k = sec.id.replace('pat-', '');
+    var d = DATA[k];
+    if (!d) return;
+    var schoolMatch = FILTERS.school === 'all' || d.school === FILTERS.school;
+
+    // Gen filter
+    var genMatch = true;
+    if (FILTERS.gen === 'done') genMatch = d.has_final;
+    else if (FILTERS.gen === 'partial') genMatch = d.videos > 0 && !d.has_final;
+    else if (FILTERS.gen === 'none') genMatch = d.videos === 0;
+
+    var patVisible = schoolMatch && genMatch;
+
+    // Status filter — show pattern if any cut matches
+    if (FILTERS.status !== 'all') {
+      var hasCutMatch = (d.cuts || []).some(function(c) { return c.qc_status === FILTERS.status; });
+      patVisible = patVisible && hasCutMatch;
+    }
+    sec.style.display = patVisible ? '' : 'none';
+
+    // Filter individual cut cards
+    if (FILTERS.status !== 'all') {
+      sec.querySelectorAll('.cut-card').forEach(function(card) {
+        card.style.display = card.getAttribute('data-qc') === FILTERS.status ? '' : 'none';
+      });
+    } else {
+      sec.querySelectorAll('.cut-card').forEach(function(card) { card.style.display = ''; });
+    }
+  });
+}
+
+// ============================================================
+// Pattern toggle
+// ============================================================
+function togglePat(k) {
+  var grid = document.getElementById('patgrid-' + k);
+  var hdr = document.getElementById('pathdr-' + k);
+  if (grid.style.display === 'none') {
+    grid.style.display = '';
+    hdr.classList.remove('collapsed');
+  } else {
+    grid.style.display = 'none';
+    hdr.classList.add('collapsed');
+  }
+}
+
+// ============================================================
+// Generation / Control
+// ============================================================
+function genPat(k, steps) {
+  post('/api/generate/' + k, { steps: steps }, function() { fetchStatus(); });
+}
+function stopPat(k) {
+  post('/api/stop/' + k, null, function() { fetchStatus(); });
+}
+function regenPat(k, target) {
+  var labels = {video: '動画', audio: '音声', all: '全素材'};
+  var label = labels[target] || '全素材';
+  if (!confirm(k + ' の' + label + 'を削除して再生成？')) return;
+  post('/api/regenerate/' + k, {target: target}, function() { fetchStatus(); });
+}
+function regenCut(k, num) {
+  if (!confirm(k + ' カット' + num + ' を再生成？\n既存ファイルはバージョンとして保存されます。')) return;
+  post('/api/regenerate-cut/' + k + '/' + num, null, function() { fetchStatus(); toast('カット' + num + ' 再生成開始'); });
+}
+function stopAll() {
+  post('/api/stop-all', null, function() { fetchStatus(); toast('全停止リクエスト送信'); });
+}
+function reloadSheets() {
+  post('/api/reload-sheets', null, function(r) {
+    if (r.ok) { toast('スプシ再読込: ' + r.patterns + 'パターン'); RENDERED = false; fetchStatus(); }
+    else { alert('エラー: ' + r.error); }
+  });
+}
+
+function batchGenerate(steps) {
+  var pats = getCheckedPats();
+  if (pats.length === 0) { alert('パターンを選択してください'); return; }
+  if (!confirm(pats.join(', ') + ' で [' + steps.join(' → ') + '] を実行？')) return;
+  post('/api/generate-batch', { patterns: pats, steps: steps }, function() { fetchStatus(); });
+}
+
+// Selection
+function selectAllPats() { document.querySelectorAll('.pat-check').forEach(function(c) { c.checked = true; }); updateSelCount(); }
+function selectNonePats() { document.querySelectorAll('.pat-check').forEach(function(c) { c.checked = false; }); updateSelCount(); }
+function getCheckedPats() { return Array.from(document.querySelectorAll('.pat-check:checked')).map(function(c) { return c.dataset.key; }); }
+function updateSelCount() { var n = getCheckedPats().length; document.getElementById('sel-count').textContent = n > 0 ? n + '件' : ''; }
+
+// ============================================================
+// QC Status
+// ============================================================
+function setQC(k, num, status) {
+  put('/api/cut/' + k + '/' + num + '/status', { qc_status: status }, function() {
+    fetchStatus();
+    toast('#' + num.padStart(2, '0') + ' → ' + (status === 'approved' ? 'OK' : status === 'rejected' ? 'NG' : 'Pending'));
+  });
+}
+function approveAllVisible() {
+  Object.keys(DATA).forEach(function(k) {
+    var sec = document.getElementById('pat-' + k);
+    if (sec && sec.style.display !== 'none') {
+      put('/api/pattern/' + k + '/approve-all', null, function() {});
+    }
+  });
+  setTimeout(fetchStatus, 500);
+  toast('全カットをOKに設定');
+}
+function pendingAllVisible() {
+  Object.keys(DATA).forEach(function(k) {
+    var sec = document.getElementById('pat-' + k);
+    if (sec && sec.style.display !== 'none') {
+      put('/api/pattern/' + k + '/pending-all', null, function() {});
+    }
+  });
+  setTimeout(fetchStatus, 500);
+  toast('全カットをPendingに設定');
+}
+
+// ============================================================
+// Edit Modal
+// ============================================================
+function openEditModal(k, num) {
+  EDIT_PAT = k; EDIT_CUT = num;
+  var d = DATA[k];
+  if (!d) return;
+  var c = d.cuts.find(function(x) { return x.num === num; });
+  if (!c) return;
+  document.getElementById('edit-modal-title').textContent = k + ' カット' + num + ' 編集';
+  document.getElementById('edit-narration').value = c.narration_override || c.narration || '';
+  document.getElementById('edit-telop').value = c.telop_override || c.telop || '';
+  document.getElementById('edit-prompt-jp').value = c.prompt_jp_override || c.prompt_jp || '';
+  document.getElementById('edit-prompt-en').value = c.prompt_en_override || c.prompt_en || '';
+  document.getElementById('edit-reason').value = '';
+
+  // Mark changed fields
+  ['narration', 'telop', 'prompt-jp', 'prompt-en'].forEach(function(f) {
+    var el = document.getElementById('edit-' + f);
+    var key = f.replace('-', '_');
+    el.classList.toggle('changed', !!c[key + '_override']);
+  });
+
+  openModal('edit-modal');
+}
+
+function resetEditModal() {
+  var d = DATA[EDIT_PAT];
+  if (!d) return;
+  var c = d.cuts.find(function(x) { return x.num === EDIT_CUT; });
+  if (!c) return;
+  document.getElementById('edit-narration').value = c.narration || '';
+  document.getElementById('edit-telop').value = c.telop || '';
+  document.getElementById('edit-prompt-jp').value = c.prompt_jp || '';
+  document.getElementById('edit-prompt-en').value = c.prompt_en || '';
+}
+
+function saveEdit(andRegen) {
+  var payload = {
+    narration: document.getElementById('edit-narration').value,
+    telop: document.getElementById('edit-telop').value,
+    prompt_jp: document.getElementById('edit-prompt-jp').value,
+    prompt_en: document.getElementById('edit-prompt-en').value,
+    reason: document.getElementById('edit-reason').value,
+  };
+  put('/api/cut/' + EDIT_PAT + '/' + EDIT_CUT + '/text', payload, function(r) {
+    toast('保存完了');
+    closeModal('edit-modal');
+    if (andRegen) {
+      regenCut(EDIT_PAT, EDIT_CUT);
+    }
+    fetchStatus();
+  });
+}
+function saveEditAndRegen() { saveEdit(true); }
+
+// ============================================================
+// Version Modal
+// ============================================================
+function openVerModal(k, num) {
+  VER_PAT = k; VER_CUT = num;
+  document.getElementById('ver-modal-title').textContent = k + ' カット' + num + ' バージョン';
+  var grid = document.getElementById('ver-grid');
+  grid.innerHTML = '読み込み中...';
+  openModal('ver-modal');
+  var x = new XMLHttpRequest();
+  x.open('GET', '/api/cut/' + k + '/' + num + '/versions');
+  x.onload = function() {
+    var data = JSON.parse(x.responseText);
+    var html = '';
+    (data.videos || []).forEach(function(v, i) {
+      html += '<div class="ver-thumb" onclick="this.querySelector(\'video\').play()">';
+      html += '<video src="' + v.url + '" preload="metadata" muted></video>';
+      html += '<span class="ver-label">' + v.name + '</span>';
+      html += '</div>';
+    });
+    if (!html) html = '<div style="color:var(--text2);padding:20px">バージョンなし</div>';
+    grid.innerHTML = html;
+  };
+  x.send();
+}
+
+// ============================================================
+// Corrections Modal
+// ============================================================
+function openCorrectionsAll() {
+  document.getElementById('corr-modal-title').textContent = '修正ログ';
+  var list = document.getElementById('corr-list');
+  list.innerHTML = '読み込み中...';
+  openModal('corr-modal');
+  // Fetch all corrections for visible patterns
+  var pats = Object.keys(DATA).sort();
+  var allCorr = [];
+  var pending = pats.length;
+  if (pending === 0) { list.innerHTML = '<div style="color:var(--text2)">修正なし</div>'; return; }
+  pats.forEach(function(k) {
+    var x = new XMLHttpRequest();
+    x.open('GET', '/api/corrections/' + k);
+    x.onload = function() {
+      try {
+        var entries = JSON.parse(x.responseText);
+        entries.forEach(function(e) { e._pat = k; allCorr.push(e); });
+      } catch(e) {}
+      pending--;
+      if (pending <= 0) {
+        allCorr.sort(function(a, b) { return b.timestamp.localeCompare(a.timestamp); });
+        if (allCorr.length === 0) { list.innerHTML = '<div style="color:var(--text2)">修正なし</div>'; return; }
+        var html = '';
+        allCorr.forEach(function(e) {
+          html += '<div class="corr-entry">';
+          html += '<div class="corr-meta"><span class="corr-field">' + e._pat + ' #' + e.cut.padStart(2, '0') + ' [' + e.field + ']</span> ' + e.timestamp;
+          if (e.reason) html += ' — ' + esc(e.reason);
+          html += '</div>';
+          html += '<div class="corr-diff"><span class="before">' + esc(e.original).substring(0, 80) + '</span>';
+          html += '<span class="after">' + esc(e.corrected).substring(0, 80) + '</span></div>';
+          html += '</div>';
+        });
+        list.innerHTML = html;
+      }
+    };
+    x.send();
+  });
+}
+
+// ============================================================
+// Modal helpers
+// ============================================================
+function openModal(id) { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    document.querySelectorAll('.modal-bg.open').forEach(function(m) { m.classList.remove('open'); });
+  }
+});
+
+// ============================================================
+// HTTP helpers
+// ============================================================
+function post(url, body, cb) {
+  var x = new XMLHttpRequest();
+  x.open('POST', url);
+  if (body) {
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function() { try { cb(JSON.parse(x.responseText)); } catch(e) { cb({}); } };
+    x.send(JSON.stringify(body));
+  } else {
+    x.onload = function() { try { cb(JSON.parse(x.responseText)); } catch(e) { cb({}); } };
+    x.send();
+  }
+}
+function put(url, body, cb) {
+  var x = new XMLHttpRequest();
+  x.open('PUT', url);
+  if (body) {
+    x.setRequestHeader('Content-Type', 'application/json');
+    x.onload = function() { try { cb(JSON.parse(x.responseText)); } catch(e) { cb({}); } };
+    x.send(JSON.stringify(body));
+  } else {
+    x.onload = function() { try { cb(JSON.parse(x.responseText)); } catch(e) { cb({}); } };
+    x.send();
+  }
+}
+
+// ============================================================
+// Polling
+// ============================================================
+function isAnyMediaPlaying() {
+  var playing = false;
+  document.querySelectorAll('video,audio').forEach(function(el) {
+    if (!el.paused && !el.ended) playing = true;
+  });
+  return playing;
+}
+
+// ============================================================
+// Cartridge panel（RAG パターン: XLSX ローカル読込）
+// ============================================================
+function toggleCartridge() {
+  document.getElementById('cartridge-panel').classList.toggle('collapsed');
+}
+
+function toggleDropZone() {
+  document.getElementById('drop-zone').classList.toggle('active');
+}
+
+async function loadCartridgeList() {
+  try {
+    var res = await fetch('/api/cartridges');
+    var data = await res.json();
+    var sel = document.getElementById('cart-select');
+    sel.innerHTML = '<option value="">-- ファイルを選択 --</option>';
+
+    (data.files || []).forEach(function(f) {
+      var opt = document.createElement('option');
+      opt.value = f.filename;
+      var cidLabel = f.cid ? '[' + f.cid + '] ' : '[new] ';
+      opt.textContent = cidLabel + f.filename + '  (' + f.size_kb + 'KB, ' + f.modified + ')';
+      sel.appendChild(opt);
+    });
+
+    // Show current loaded state
+    if (data.meta && data.meta.loaded_file) {
+      var badge = document.getElementById('cart-loaded-badge');
+      var cid = data.meta.cartridge_id || '';
+      badge.textContent = cid + ' ' + data.meta.loaded_file + ' (' + (data.meta.pattern_count || '?') + 'パターン)';
+      badge.style.display = '';
+      var info = document.getElementById('cart-info');
+      info.innerHTML = '<span class="loaded-file">' + cid + '</span> ' + esc(data.meta.loaded_file) + ' <span class="loaded-count">' + (data.meta.pattern_count || '?') + 'パターン</span>';
+    }
+  } catch (e) {
+    console.error('Failed to load cartridge list:', e);
+  }
+}
+
+document.getElementById('cart-select').addEventListener('change', function() {
+  document.getElementById('btn-import').disabled = !this.value;
+});
+
+async function loadCartridge() {
+  var sel = document.getElementById('cart-select');
+  var filename = sel.value;
+  if (!filename) return;
+
+  var btn = document.getElementById('btn-import');
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+
+  try {
+    var res = await fetch('/api/cartridges/load', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({filename: filename}),
+    });
+    var data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    // Update badge
+    var badge = document.getElementById('cart-loaded-badge');
+    var cidLabel = data.cid || '';
+    badge.textContent = cidLabel + ' ' + data.filename + ' (' + data.patterns + 'パターン)';
+    badge.style.display = '';
+
+    var info = document.getElementById('cart-info');
+    info.innerHTML = '<span class="loaded-file">' + cidLabel + '</span> ' + esc(data.filename) +
+      ' <span class="loaded-count">' + data.patterns + 'パターン / ' + data.total_cuts + 'カット</span>' +
+      (data.schools ? ' — ' + data.schools.join(', ') : '');
+
+    toast(cidLabel + ' ' + data.filename + ' をインポートしました（' + data.patterns + 'パターン）');
+
+    // Reload status and collapse
+    RENDERED = false;
+    fetchStatus();
+    setTimeout(function() {
+      document.getElementById('cartridge-panel').classList.add('collapsed');
+    }, 800);
+
+  } catch (e) {
+    toast('Import error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'インポート';
+  }
+}
+
+// Drag & drop / upload
+var dropZone = document.getElementById('drop-zone');
+dropZone.addEventListener('dragover', function(e) { e.preventDefault(); dropZone.classList.add('dragover'); });
+dropZone.addEventListener('dragleave', function() { dropZone.classList.remove('dragover'); });
+dropZone.addEventListener('drop', function(e) {
+  e.preventDefault();
+  dropZone.classList.remove('dragover');
+  var file = e.dataTransfer.files[0];
+  if (file) handleFileUpload(file);
+});
+
+async function handleFileUpload(file) {
+  if (!file || !file.name.endsWith('.xlsx')) {
+    toast('xlsxファイルを選択してください');
+    return;
+  }
+  var formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    toast('Uploading ' + file.name + '...');
+    var res = await fetch('/api/cartridges/upload', {method: 'POST', body: formData});
+    var data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    toast(file.name + ' をアップロードしました');
+    dropZone.classList.remove('active');
+    await loadCartridgeList();
+
+    // Auto-select the uploaded file
+    var sel = document.getElementById('cart-select');
+    sel.value = file.name;
+    document.getElementById('btn-import').disabled = false;
+  } catch (e) {
+    toast('Upload error: ' + e.message);
+  }
+}
+
+// ============================================================
+// Init
+// ============================================================
+loadCartridgeList();
+fetchStatus();
+setInterval(function() {
+  if (!isAnyMediaPlaying()) fetchStatus();
+}, 3000);
+
+console.log('VANTAN Video Studio v1.2 loaded');
+</script>
+</body>
+</html>
