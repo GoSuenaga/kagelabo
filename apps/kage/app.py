@@ -2373,11 +2373,13 @@ _DB_ARCHIVE_SEARCH_ORDER = ("Tasks", "Memos", "Ideas", "Schedule", "Profile", "S
 
 
 def _search_and_archive(title_query: str) -> list:
-    """タイトルでDBを検索。Tasks優先。一致ページのリストを返す"""
+    """タイトルでDBを検索。Tasks優先。直近編集順。一致ページのリストを返す。
+    表記ゆれ対策: 完全一致 → 部分一致 → 単語分割して再検索"""
     found = []
     q = (title_query or "").strip()
     if not q:
         return found
+    seen_ids: set = set()
     for db_name in _DB_ARCHIVE_SEARCH_ORDER:
         db_id = DB.get(db_name)
         if db_name in ("ChatLog", "Debug") or not (str(db_id or "").strip()):
@@ -2385,16 +2387,45 @@ def _search_and_archive(title_query: str) -> list:
         try:
             data = _notion_post(f"/databases/{db_id}/query", {
                 "filter": {"property": "名前", "title": {"contains": q}},
-                "page_size": 5,
+                "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+                "page_size": 8,
             })
             for row in data.get("results", []):
-                if row.get("archived"):
+                if row.get("archived") or row["id"] in seen_ids:
                     continue
                 t = row["properties"]["名前"]["title"]
                 name = t[0]["plain_text"] if t else ""
                 found.append({"page_id": row["id"], "title": name, "db": db_name})
+                seen_ids.add(row["id"])
         except Exception:
             pass
+    # ヒットしなければ単語分割して再検索（表記ゆれ・助詞違い対策）
+    if not found:
+        words = [w for w in re.split(r'[\s、。,./\-・]+', q) if len(w) >= 2]
+        for w in words[:3]:
+            if w == q:
+                continue
+            for db_name in _DB_ARCHIVE_SEARCH_ORDER[:2]:  # Tasks, Memos のみ
+                db_id = DB.get(db_name)
+                if not (str(db_id or "").strip()):
+                    continue
+                try:
+                    data = _notion_post(f"/databases/{db_id}/query", {
+                        "filter": {"property": "名前", "title": {"contains": w}},
+                        "sorts": [{"timestamp": "last_edited_time", "direction": "descending"}],
+                        "page_size": 5,
+                    })
+                    for row in data.get("results", []):
+                        if row.get("archived") or row["id"] in seen_ids:
+                            continue
+                        t = row["properties"]["名前"]["title"]
+                        name = t[0]["plain_text"] if t else ""
+                        found.append({"page_id": row["id"], "title": name, "db": db_name})
+                        seen_ids.add(row["id"])
+                except Exception:
+                    pass
+            if found:
+                break
     return found
 
 
@@ -3807,12 +3838,13 @@ def get_brain():
 # ---------------------------------------------------------------------------
 
 @app.post("/think")
-def think():
+def think(brain=None):
     """Notionデータを取得してGeminiで整理する"""
     if not GEMINI_API_KEY:
         return {"message": "APIキーが未設定です（GEMINI_API_KEY を設定してください）"}
 
-    brain = _fetch_brain()
+    if brain is None:
+        brain = _fetch_brain()
 
     context = (
         f"## ボスのプロフィール\n{json.dumps(brain['profile'], ensure_ascii=False)}\n\n"
@@ -4016,31 +4048,10 @@ def chat(req: ChatRequest):
             threading.Thread(target=_auto_learn_bg, args=(text,), daemon=True).start()
         return resp
 
-    # --- memo ---
-    if intent == "memo":
-        title = apply_kage_glossary(((classified.get("title") or text[:20]).strip() or "メモ")[:200])
-        raw_c = (classified.get("content") or "").strip()
-        content = apply_kage_glossary((raw_c or text).strip())
-        props = {**_title_prop(title)}
-        props.update(_rich_text_prop_chunked("内容", content))
-        try:
-            _notion_post("/pages", {"parent": {"database_id": DB["Memos"]}, "properties": props})
-            return _respond({"intent": "memo", "message": f"メモを保存しました: {title}", "saved": True})
-        except Exception:
-            return _respond({"intent": "memo", "message": f"Notion保存に失敗しました: {title}", "saved": False})
-
-    # --- idea ---
-    if intent == "idea":
-        title = apply_kage_glossary(((classified.get("title") or text[:20]).strip() or "アイデア")[:200])
-        raw_c = (classified.get("content") or "").strip()
-        content = apply_kage_glossary((raw_c or text).strip())
-        props = {**_title_prop(title)}
-        props.update(_rich_text_prop_chunked("内容", content))
-        try:
-            _notion_post("/pages", {"parent": {"database_id": DB["Ideas"]}, "properties": props})
-            return _respond({"intent": "idea", "message": f"アイデアを保存しました: {title}", "saved": True})
-        except Exception:
-            return _respond({"intent": "idea", "message": f"Notion保存に失敗しました: {title}", "saved": False})
+    # --- memo / idea → answer にフォールバック（ユーザーはこれらのタグを使わない運用） ---
+    if intent in ("memo", "idea"):
+        logger.info("[chat] intent=%s → answer にフォールバック（memo/idea 無効化中）", intent)
+        intent = "answer"
 
     # --- minutes（議事録） ---
     if intent == "minutes":
@@ -4234,27 +4245,6 @@ def chat(req: ChatRequest):
                 "saved": False, "archived": False,
                 "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in found[:5]],
             })
-        else:
-            # フォールバック: クエリを短縮して再検索
-            words = [w for w in re.split(r'[\s、。,./]+', query) if len(w) >= 2]
-            for w in words[:3]:
-                if w != query:
-                    found = _search_and_archive(w)
-                    if found:
-                        break
-            if len(found) == 1:
-                _archive_page(found[0]["page_id"])
-                if sid in CONVERSATIONS and CONVERSATIONS[sid].get("last_task_page_id") == found[0]["page_id"]:
-                    CONVERSATIONS[sid]["last_task_page_id"] = None
-                return _respond({"intent": "done", "message": f"かしこまりました。「{found[0]['title']}」をアーカイブしました。", "saved": False, "archived": True})
-            if len(found) > 1:
-                items_text = "\n".join(f"・{f['title']}（{f['db']}）" for f in found[:5])
-                return _respond({
-                    "intent": "done",
-                    "message": f"該当が{len(found)}件あります。どれをアーカイブしますか？\n{items_text}",
-                    "saved": False, "archived": False,
-                    "candidates": [{"page_id": f["page_id"], "title": f["title"], "db": f["db"]} for f in found[:5]],
-                })
             # それでも見つからない場合、直近タスク一覧を表示
             try:
                 recent_tasks = _notion_post(f"/databases/{DB['Tasks']}/query", {
@@ -4395,7 +4385,7 @@ def chat(req: ChatRequest):
 
     # --- think ---
     if intent == "think":
-        result = think()
+        result = think(brain=_prefetched_brain)
         return _respond({"intent": "think", "message": result.get("message", ""), "saved": False})
 
     # --- answer: Notionデータ+会話履歴を参照してGemini回答 ---
@@ -4482,18 +4472,8 @@ def morning(session_id: Optional[str] = Query(None)):
     except Exception as e:
         logger.warning("[morning] news_digest: %s", e)
 
-    if session_id and nd.get("enabled") and nd.get("items"):
-        try:
-            sid_nf, _ = _get_session(session_id)
-            _ensure_session_news_feedback(sid_nf)
-            CONVERSATIONS[sid_nf]["pending_news_feedback"] = {
-                "set_at": time.time(),
-                "digest_at": nd.get("generated_at"),
-                "headlines": [(it.get("title") or "")[:300] for it in nd.get("items", [])[:8]],
-            }
-            news_feedback_prompt = True
-        except Exception as ex:
-            logger.warning("[morning] news feedback pending: %s", ex)
+    # ニュースの好みフィードバック招待は無効化（ユーザー要望）
+    # pending_news_feedback セッションフラグも立てない
 
     if not GEMINI_API_KEY:
         return {

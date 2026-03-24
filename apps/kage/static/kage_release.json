@@ -1,5 +1,5 @@
 {
-  "app_version": "0.300",
+  "app_version": "0.301",
   "release_date": "2026-03-24",
-  "summary": "デフォルトLLMをPro 2.5に変更、会話コピーバグ修正（details要素の内容が欠落していた問題）、コントロールパネルのバージョン表示を動的取得に変更"
+  "summary": "UI改善5件: 会話文字切れ修正、memo/idea→answer化、ニュース好み非表示、完了検索の表記ゆれ対策、think二重fetch解消+レスポンス時間表示"
 }

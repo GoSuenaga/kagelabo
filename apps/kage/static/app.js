@@ -119,7 +119,10 @@ function fmtDate(s) {
   return d.toLocaleDateString('ja-JP',{month:'short',day:'numeric',weekday:'short'});
 }
 function scrollEnd() {
-  requestAnimationFrame(() => chatArea.scrollTo({top:chatArea.scrollHeight,behavior:'smooth'}));
+  requestAnimationFrame(() => {
+    // 2フレーム待ってDOM反映後にスクロール（画像・details展開で高さが変わるケース対策）
+    requestAnimationFrame(() => chatArea.scrollTo({top:chatArea.scrollHeight,behavior:'smooth'}));
+  });
 }
 
 // ── Chat render ───────────────────────────────────
@@ -636,6 +639,7 @@ async function handleSend() {
   }
   msgInput.value = ''; autoResize();
   showTyping();
+  const _t0 = performance.now();
   try {
     const body = {message: text || 'この画像について教えて'};
     if (sessionId) body.session_id = sessionId;
@@ -646,12 +650,21 @@ async function handleSend() {
     pendingImage = null; pendingMime = null;
     imagePreview.classList.add('hidden'); previewImg.src = '';
     const data = await post('/chat', body);
+    const _ms = Math.round(performance.now() - _t0);
     if (data.session_id) {
       sessionId = data.session_id;
       sessionStorage.setItem('kage_session', sessionId);
     }
     hideTyping();
     renderResponse(data, text);
+    // 最後のバブルにレスポンス時間を表示
+    const _lastBubble = chatArea.querySelector('.row.kage:last-child .bubble');
+    if (_lastBubble) {
+      const _elapsed = document.createElement('span');
+      _elapsed.className = 'response-time';
+      _elapsed.textContent = _ms >= 1000 ? `${(_ms / 1000).toFixed(1)}s` : `${_ms}ms`;
+      _lastBubble.appendChild(_elapsed);
+    }
   } catch(e) {
     hideTyping();
     addMsg('kage',`ボス、通信エラーが発生しました。`,'error');
@@ -1420,16 +1433,8 @@ async function showMorningBriefing() {
         '',
         { noScroll: true }
       );
-      if (data.news_feedback_prompt) {
-        addMsg(
-          'kage',
-          '<div class="news-feedback-invite">ひとつだけ教えてください。今朝のニュースの出し方、'
-            + '「もっと見たいテーマ」と「減らしたいテーマ」はありますか？'
-            + '<span class="news-feedback-hint">（「特にない」でも大丈夫です）</span></div>',
-          '',
-          { noScroll: true }
-        );
-      }
+      // ニュースの好みフィードバック招待は無効化（ユーザー要望）
+      // if (data.news_feedback_prompt) { ... }
       if (!String(data.message).includes('APIキーが未設定')) {
         localStorage.setItem('kage_morning', today);
       }

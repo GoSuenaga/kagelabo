@@ -94,7 +94,7 @@ body {
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 14px var(--chat-pad-x) 20px;
+  padding: 14px var(--chat-pad-x) 32px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -190,6 +190,15 @@ body {
 .bubble.saved  { border-color: rgba(52,211,153,0.4); }
 .bubble.warn   { border-color: rgba(251,191,36,0.35); }
 .bubble.error  { border-color: rgba(248,113,113,0.4); }
+
+.response-time {
+  display: block;
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
 
 .badge-save {
   display: inline-block; margin-top: 8px;
