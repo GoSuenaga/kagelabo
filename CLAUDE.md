@@ -8,6 +8,7 @@
 | **VANTAN 動画** | `apps/vantan-video/` | Vlog 風広告パイプライン（`vlog_engine`、各種 `generate_*.py`）。 |
 | **RAG / 静止画 QC** | `apps/rag-images/` | 広告クリエ QC ギャラリー（FastAPI + Imagen）。 |
 | **共有（予定）** | `packages/shared/` | 将来、共通 Python を切り出す。 |
+| **Google Sheets MCP** | `packages/mcp-google-sheets/` | Claude Code がスプシを直接読み書きする MCP サーバー。 |
 | **スナップショット** | `packages/20260323_vantan_v1/` | VANTAN 動画の設計・再現用パッケージ。 |
 
 ルートの **README.md** に起動コマンドの要約あり。
@@ -108,6 +109,37 @@
 ## 4. 旧 Dify / GAS（参考のみ）
 
 - `vantan_fixed.yml` 等 — `.gitignore` で除外されている場合あり
+
+---
+
+## 5. Google Sheets MCP サーバー
+
+**場所:** `packages/mcp-google-sheets/`
+
+Claude Code がスプシを直接読み書きできる MCP サーバー。8つのツールを提供：
+
+| ツール | 機能 |
+|--------|------|
+| `list_worksheets` | シート一覧取得 |
+| `read_sheet` | ワークシート全データ読み取り（500行上限） |
+| `read_range` | 特定範囲を読む（A1記法） |
+| `write_cells` | 特定範囲に書き込み |
+| `append_rows` | 末尾に行追加 |
+| `create_worksheet` | 新タブ作成 |
+| `create_spreadsheet` | 新スプシ作成 |
+| `format_cells` | 書式設定（太字、色、配置） |
+
+### セットアップ
+
+```bash
+pip install mcp gspread gspread-formatting
+```
+
+認証ファイルがリポジトリルートにあることを確認：
+- `oauth_credentials.json` — Google Cloud OAuth クライアント
+- `token.json` — 認証トークン（初回は `gspread.oauth()` でブラウザ認証が必要）
+
+設定: `.claude/settings.local.json`（gitignore 対象）に MCP サーバー登録済み。
 
 ---
 
