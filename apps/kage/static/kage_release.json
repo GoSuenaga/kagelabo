@@ -1,5 +1,5 @@
 {
-  "app_version": "0.301",
+  "app_version": "0.302",
   "release_date": "2026-03-24",
-  "summary": "UI改善5件: 会話文字切れ修正、memo/idea→answer化、ニュース好み非表示、完了検索の表記ゆれ対策、think二重fetch解消+レスポンス時間表示"
+  "summary": "ウェルカム簡素化、整理のシングルタスク強化、today/think分類改善、一般知識対応強化"
 }

@@ -180,30 +180,9 @@ function showWelcome() {
   // 日付はヘッダー、時刻はOSステータスバーに任せ、ウェルカムでは日時を出さない（重複削減）
   addMsg(
     'kage',
-    `
-    <div class="welcome welcome--compact">
+    `<div class="welcome welcome--compact">
       <p class="welcome-lead"><strong>${g}、ボス。</strong> ${body}</p>
-      <details class="welcome-details">
-        <summary class="welcome-details-sum">使い方ヒント（タップで開く）</summary>
-        <div class="welcome-details-body">
-          <p class="welcome-details-lead">影が Notion の管理をサポートいたします。</p>
-          <ul class="welcome-hint-list">
-            <li>📋 議事録ボタン → Notion に蓄積。DBの列はサーバがNotionから自動認識（型さえ合っていれば列名は日本語でも可）。長文は要約＋原文保存可</li>
-            <li>メモ・アイデア・予定も文章で話しかければ保存できます（フッターのショートカットは省略しています）</li>
-            <li>📷 会社カレンダーのスクショ＋「明日の予定はこれ」など → 会議枠をまとめて取込（(((AM2h))) / Focus time は除外）</li>
-            <li>📅 「明日の予定は何？」→ 時間×タイトルの一覧。「明日〇〇はやらない」→ その日は頭から外す（シングルタスク用・セッション内）</li>
-            <li>🧠 整理ボタン → タスクを整理</li>
-            <li>🐛 バグボタン → 不具合を Notion に記録</li>
-            <li>✅ 仕事タスク → Tasks に保存（所要時間が無いと聞き返します）</li>
-            <li>💤 「おやすみ」「おはよう」→ 睡眠ログ</li>
-            <li>🚪 「行ってきます」「ただいま」→ 健康メモ</li>
-            <li>📆 右上カレンダー → 今後の予定確認</li>
-          </ul>
-          <p class="welcome-details-foot">長い連絡は貼り付けでタスク化できます。社内短文・返信文案の相談も OK です。</p>
-        </div>
-      </details>
-    </div>
-  `,
+    </div>`,
     '',
     { noScroll: true }
   );
