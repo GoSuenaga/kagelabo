@@ -3266,7 +3266,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - upcoming: 今週・今後の**幅広い**予定確認（7日以上の塊）。「今週まとめて」など
 - done: タスクやメモが完了・不要になった場合。「もうやった」「終わった」「いらない」「消して」「削除して」
 - debug: バグ・改善要望の記録。「バグ:」「不具合:」で始まるものは本文に「してほしい」「お願い」があっても必ずdebug（answerにしない）
-- think: 整理して・優先順位・何から・頭の中
+- think: 頭の中を**優先順位で整理**する。「整理して」「何から手をつける」「頭の中ぐちゃぐちゃ」。ただし「タスクを並べて」「タスク一覧」「登録してあるタスクは？」など**既存タスクの表示・列挙**はthinkではなくanswer
 - sleep_bedtime: 就寝のあいさつ・寝る宣言。「おやすみ」「寝ます」「そろそろ寝る」など短い発言
 - sleep_wake: 起床のあいさつ。「おはよう」「起きた」など短い発言（長文に予定の相談が混じる場合はanswer）
 - health_go: 外出の挨拶。「行ってきます」「いってきます」「出かけます」など
@@ -3288,6 +3288,7 @@ CLASSIFY_SYSTEM_PROMPT_TEMPLATE = """\
 - minutesとtask: 会議の記録・「以下議事録」・決定事項の**保存**はminutes。自分がやるべき1件の作業はtask
 - minutesとanswer: **保存・記録して**の意図で会議内容が中心ならminutes。「教えて」「どう思う」だけならanswer
 - taskでは、発言から所要時間（分）が読み取れるときだけ JSON の minutes に正の整数を入れる。無ければ minutes:null（システムが後で聞く）
+- タスクの**一覧表示・列挙**（「タスクを並べて」「タスク見せて」「登録してあるタスクは？」「何が残ってる？」）→ answer（Notionデータを参照して回答する。todayやthinkではない）
 - 迷ったらanswerにする
 
 Few-shot例:
@@ -3315,6 +3316,9 @@ Few-shot例:
 "企画書は今日やらないことにして" → {{"intent":"day_defer","title":"企画書","content":"","date":""}}
 "リクルートは明日やることに戻して" → {{"intent":"day_undefer","title":"リクルート","content":"","date":""}}
 "整理して" → {{"intent":"think","title":"","content":"","date":""}}
+"タスクを並べて" → {{"intent":"answer","title":"","content":"","date":""}}
+"登録してあるタスクは？" → {{"intent":"answer","title":"","content":"","date":""}}
+"今あるタスク見せて" → {{"intent":"answer","title":"","content":"","date":""}}
 "経歴を300文字でまとめて" → {{"intent":"answer","title":"","content":"","date":""}}
 "俺の好きな食べ物知ってる？" → {{"intent":"answer","title":"","content":"","date":""}}
 "自己紹介文を作ってください" → {{"intent":"answer","title":"","content":"","date":""}}
@@ -3465,6 +3469,8 @@ def _classify_intent_fallback(message: str) -> dict:
     elif len(text) < 20 and any(k in text for k in ["今後", "今週", "upcoming"]):
         return {"intent": "upcoming", "title": "", "content": "", "date": ""}
     elif any(k in text for k in ["整理", "優先", "何から", "頭の中"]):
+        if "タスク" in text and any(k in text for k in ["並べ", "一覧", "見せ", "出し", "リスト", "残っ"]):
+            return {"intent": "answer", "title": "", "content": "", "date": ""}
         return {"intent": "think", "title": "", "content": "", "date": ""}
     else:
         return {"intent": "answer", "title": "", "content": "", "date": ""}
