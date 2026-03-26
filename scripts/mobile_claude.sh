@@ -1,7 +1,7 @@
 #!/bin/bash
 # mobile_claude.sh
 eval "$(/opt/homebrew/bin/brew shellenv 2>/dev/null)"
-cd ~/Dropbox/CA_Works/20260316_Claude_code
+cd ~/dev/kage-lab
 
 echo "=============================="
 echo "  Claude Code Mobile Chat"

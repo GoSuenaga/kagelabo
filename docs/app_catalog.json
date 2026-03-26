@@ -30,7 +30,7 @@
       "ver": "v1",
       "type": "静的HTML",
       "start": "python3 generate_dashboard.py && open dashboard.html",
-      "url": "file:///Users/a13371/Dropbox/CA_Works/20260316_Claude_code/dashboard.html",
+      "url": "file:///Users/a13371/dev/kage-lab/dashboard.html",
       "path": "apps/vantan-video/generate_dashboard.py",
       "status": "ローカル起動可",
       "memo": "workflow_002 全16パターンの台本プレビュー"

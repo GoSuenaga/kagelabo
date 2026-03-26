@@ -1,5 +1,5 @@
 #!/bin/bash
-cd /Users/a13371/Dropbox/CA_Works/20260316_Claude_code
+cd /Users/a13371/dev/kage-lab
 
 echo "========================================="
 echo "  kage-lab Unified Studio v2.0"

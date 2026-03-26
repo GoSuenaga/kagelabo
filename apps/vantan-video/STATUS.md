@@ -70,7 +70,7 @@
 ## 再開手順
 
 ```bash
-cd /Users/a13371/Dropbox/CA_Works/20260316_Claude_code
+cd /Users/a13371/dev/kage-lab
 python3 control_panel_server.py   # → http://localhost:8888
 ```
 

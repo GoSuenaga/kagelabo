@@ -22,7 +22,7 @@
 ターミナル（パスは環境に合わせる）:
 
 ```bash
-cd /Users/a13371/Dropbox/CA_Works/20260316_Claude_code
+cd /Users/a13371/dev/kage-lab
 git remote add origin https://github.com/<ユーザー名>/kagelabo.git
 git push -u origin main
 ```

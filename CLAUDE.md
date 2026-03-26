@@ -117,33 +117,34 @@
 
 | 環境 | 役割 | できること |
 |------|------|-----------|
-| **Claude Code Web** | 設計・コーディング | コード編集、台本設計、プロンプト調整、新スクリプト作成、Git コミット |
-| **Claude Code CLI（ローカル）** | 実行 | `python generate_*.py` の実行、API 呼び出し、動画生成 |
-| **GitHub** | コードの同期 | Web で書いたコードを pull してローカルで実行 |
-| **Dropbox** | メディア管理 | 音源・生成物はローカル Dropbox フォルダに保存（Git 管理外） |
+| **Claude Code CLI（Mac/Windows）** | 設計・実行 | コード編集、台本設計、API 呼び出し、動画生成 |
+| **GitHub** | コードの同期 | Mac ↔ Windows のコード同期（push / pull） |
+| **Dropbox** | メディア共有 | 生成物・音源を symlink 経由で自動同期 |
 
 ### ファイル管理
 
 ```
-リポジトリ（Git 管理 → GitHub 同期）
+~/dev/kage-lab/                          ← Git管理（Dropbox外）
 ├── apps/vantan-video/
-│   ├── generate_*.py, vlog_engine.py  ← コード（Web で編集可）
-│   ├── workflow_config.json           ← 設定（Web で編集可）
-│   └── vlog_prompt_bible.md           ← 設計書（Web で編集可）
-│
-ローカル専用（Git 管理外 → Dropbox 同期）
-├── apps/vantan-video/clients/         ← SE/BGM 音源
-├── apps/vantan-video/output/          ← 生成された動画・音声
-├── .env                               ← API キー
-└── credentials.json, token.json       ← Google OAuth
+│   ├── generate_*.py, vlog_engine.py    ← コード
+│   ├── output/   → ~/Dropbox/kage-shared/vantan-output/   ← symlink
+│   ├── clients/  → ~/Dropbox/kage-shared/vantan-clients/  ← symlink
+│   └── briefs/   → ~/Dropbox/kage-shared/vantan-briefs/   ← symlink
+├── .env                                 ← API キー（ローカル専用）
+└── credentials.json, token.json         ← Google OAuth（ローカル専用）
+
+~/Dropbox/kage-shared/                   ← メディア共有（Dropbox同期）
+├── vantan-output/                       ← 生成された動画・音声
+├── vantan-clients/                      ← SE/BGM 音源
+└── vantan-briefs/                       ← XLSX 台本（カートリッジ）
 ```
 
 ### ワークフロー
 
 ```
-① Web でコード・プロンプトを編集 → push
-② ローカルで pull → python 実行 → output/ に生成物
-③ Dropbox が output/ を自動同期
+① コードを編集 → commit → push（GitHub へ）
+② 別デバイスで pull → python 実行 → output/ に生成物
+③ output/ は symlink → Dropbox が自動同期
 ```
 
 ### Claude Code Web への注意事項
@@ -165,6 +166,7 @@
 
 ## 再開手順
 
-1. リポジトリルートで `README.md` と本ファイルを確認
-2. 触るアプリの `apps/...` に `cd`
-3. 「続きをやりたい」とチャットで伝える
+1. `cd ~/dev/kage-lab` でリポジトリルートに移動
+2. `README.md` と本ファイルを確認
+3. 触るアプリの `apps/...` に `cd`
+4. 「続きをやりたい」とチャットで伝える
