@@ -1,0 +1,170 @@
+# kage-lab 環境移行プラン：Dropbox外へリポジトリを移動
+
+> **このファイルの目的:** MacローカルのClaude Codeに貼って、移行作業を実行してもらうための指示書。
+> 作業者はClaude Code CLI（Mac）。人間（ゴウ）が確認しながら進める。
+
+---
+
+## 背景と目的
+
+現在 kage-lab リポジトリが ~/Dropbox/CA_Works/20260316_Claude_code にある。
+Windows Dell（24h稼働）を追加してマルチデバイス開発体制にするため、git リポジトリを Dropbox 外に移動する。
+
+### なぜ移動するのか
+
+- Dropbox 内に .git フォルダがあると、複数デバイスで同時に作業したとき先祖返り・競合・.git 破損が起きる
+- Windows 側にも同じリポを clone するため、コードの同期は GitHub 経由のみにしたい
+- 生成物（output/、clients/）は引き続き Dropbox で共有したいので symlink で繋ぐ
+
+---
+
+## 全体構成（移行後）
+
+~/
+├── dev/                          ← 【新設】Dropbox外。全gitリポをここに置く
+│   └── kage-lab/                 ← git リポジトリ本体
+│       ├── apps/
+│       │   ├── kage/
+│       │   ├── vantan-video/
+│       │   │   ├── output/       ← symlink → ~/Dropbox/kage-shared/vantan-output/
+│       │   │   └── clients/      ← symlink → ~/Dropbox/kage-shared/vantan-clients/
+│       │   └── rag-images/
+│       ├── packages/
+│       ├── docs/
+│       ├── CLAUDE.md
+│       ├── README.md
+│       └── STATUS.md
+│
+├── Dropbox/
+│   ├── kage-shared/              ← 【新設】生成物・素材の実体置き場
+│   │   ├── vantan-output/        ← 動画・画像（メンバー共有可）
+│   │   └── vantan-clients/       ← SE/BGM 音源
+│   ├── CA_Works/                 ← 旧フォルダ（移行後は参照不要）
+│   └── ...
+
+### 同期の流れ
+
+- コード → GitHub 経由（git push / pull）
+- 生成物・素材 → Dropbox 自動同期（symlink で接続）
+- デプロイ（KAGE） → GitHub → Railway 自動デプロイ（変更不要）
+
+---
+
+## 移行手順（ステップバイステップ）
+
+### 事前確認
+
+# 1. 作業ツリーがクリーンか確認
+cd ~/Dropbox/CA_Works/20260316_Claude_code
+git status
+# → nothing to commit であること。未コミットがあれば先にコミット or stash
+
+# 2. リモートが設定されているか確認
+git remote -v
+# → origin が GitHub を指していること
+
+### ステップ 1 — ~/dev/ を作成してリポをコピー
+
+mkdir -p ~/dev
+cp -a ~/Dropbox/CA_Works/20260316_Claude_code ~/dev/kage-lab
+cd ~/dev/kage-lab
+git status
+git log --oneline -5
+git remote -v
+
+確認ポイント: git の履歴・リモート設定が元と同じであること。
+
+### ステップ 2 — 生成物フォルダを Dropbox に移動
+
+mkdir -p ~/Dropbox/kage-shared/vantan-output
+mkdir -p ~/Dropbox/kage-shared/vantan-clients
+
+# 既存の output/ の中身を Dropbox に移動（あれば）
+if [ -d ~/dev/kage-lab/apps/vantan-video/output ]; then
+  cp -a ~/dev/kage-lab/apps/vantan-video/output/* ~/Dropbox/kage-shared/vantan-output/ 2>/dev/null || true
+  rm -rf ~/dev/kage-lab/apps/vantan-video/output
+fi
+
+# 既存の clients/ の中身を Dropbox に移動（あれば）
+if [ -d ~/dev/kage-lab/apps/vantan-video/clients ]; then
+  cp -a ~/dev/kage-lab/apps/vantan-video/clients/* ~/Dropbox/kage-shared/vantan-clients/ 2>/dev/null || true
+  rm -rf ~/dev/kage-lab/apps/vantan-video/clients
+fi
+
+### ステップ 3 — symlink を張る
+
+cd ~/dev/kage-lab/apps/vantan-video
+ln -s ~/Dropbox/kage-shared/vantan-output output
+ln -s ~/Dropbox/kage-shared/vantan-clients clients
+ls -la output clients
+# → output -> /Users/a13371/Dropbox/kage-shared/vantan-output のように表示されること
+
+### ステップ 4 — .gitignore に symlink を明記（念のため）
+
+cd ~/dev/kage-lab
+cat .gitignore | grep -E "output|clients"
+# もし output/ や clients/ が .gitignore に入っていなければ追記
+
+### ステップ 5 — 動作確認
+
+cd ~/dev/kage-lab
+git status
+git fetch origin
+ls apps/vantan-video/output/
+ls apps/vantan-video/clients/
+
+python3 -c "
+import os
+output_path = 'apps/vantan-video/output'
+print(f'output/ exists: {os.path.exists(output_path)}')
+print(f'output/ is symlink: {os.path.islink(output_path)}')
+print(f'output/ real path: {os.path.realpath(output_path)}')
+if os.path.isdir(output_path):
+    print(f'files: {os.listdir(output_path)[:5]}')
+"
+
+### ステップ 6 — README.md / CLAUDE.md のパスを更新
+
+旧: cd /Users/a13371/Dropbox/CA_Works/20260316_Claude_code
+新: cd ~/dev/kage-lab
+
+### ステップ 7 — 旧フォルダの処理（まだ削除しない）
+
+echo "# このリポジトリは ~/dev/kage-lab に移行しました（$(date +%Y-%m-%d)）" > ~/Dropbox/CA_Works/20260316_Claude_code/MOVED.md
+
+---
+
+## 移行後の運用ルール
+
+### コードの同期（Mac ↔ Windows）
+Mac: ~/dev/kage-lab ←→ GitHub ←→ Windows: C:\Users\gou\dev\kage-lab
+git push/pull のみ。Dropbox は経由しない。
+
+### 生成物の同期（Mac ↔ Windows）
+Mac: ~/Dropbox/kage-shared/ ←→ Dropbox クラウド ←→ Windows: Dropbox\kage-shared\
+自動同期。symlink でリポ内の output/ からアクセス可能。
+
+### ブランチ運用
+- Mac で作業: feature/mac-xxx
+- Windows で作業: feature/win-xxx
+- 同じブランチを2台で同時に触らない
+- 作業開始時に必ず git pull
+
+### コントロールパネル（QC）
+- localhost:8888 でコントロールパネルを起動
+- output/ は symlink 経由で読み込み → 今まで通り動作する
+- QC 完了 → Dropbox 経由でクリエイターにハンドオフ
+
+---
+
+## チェックリスト
+
+- [ ] git status がクリーン（事前確認）
+- [ ] ~/dev/kage-lab にコピー完了
+- [ ] Dropbox/kage-shared/ に生成物を移動完了
+- [ ] symlink が正しく張れている
+- [ ] git fetch / push / pull が正常
+- [ ] Python から symlink 先のファイルが読める
+- [ ] README.md / CLAUDE.md のパスを更新
+- [ ] 旧フォルダに MOVED.md を配置
+- [ ] コントロールパネル (localhost:8888) で画像が表示される

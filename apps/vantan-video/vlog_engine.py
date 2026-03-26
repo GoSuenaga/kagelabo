@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Optional
 
 import google.generativeai as genai
+from google import genai as genai_new
+from google.genai import types as genai_types
 import requests
 from dotenv import load_dotenv
 
@@ -25,7 +27,54 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # Config
 # ---------------------------------------------------------------------------
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# --- 複数 Gemini API キー（クォータ超過時の自動切替用） ---
+# .env に GEMINI_API_KEY_1, GEMINI_API_KEY_2, ... を定義。
+def _load_gemini_keys() -> list[str]:
+    keys = []
+    for i in range(1, 10):
+        k = os.getenv(f"GEMINI_API_KEY_{i}", "")
+        if k:
+            keys.append(k)
+    if not keys:
+        raise RuntimeError("GEMINI_API_KEY_1 が設定されていません。.env を確認してください。")
+    return keys
+
+GEMINI_API_KEYS = _load_gemini_keys()
+_gemini_key_index = 0  # 現在使用中のキーインデックス
+
+
+def _current_gemini_key() -> str:
+    if not GEMINI_API_KEYS:
+        raise RuntimeError("GEMINI_API_KEY が設定されていません。.env を確認してください。")
+    return GEMINI_API_KEYS[_gemini_key_index]
+
+
+def _rotate_gemini_key(error_msg: str) -> bool:
+    """次のキーに切り替える。切替可能なら True、全キー使い切りなら False。"""
+    global _gemini_key_index
+    old_idx = _gemini_key_index + 1  # 人間向け表示は1始まり
+    _gemini_key_index += 1
+    if _gemini_key_index >= len(GEMINI_API_KEYS):
+        log.error("⚠️ 全 %d 個の Gemini API キーがクォータ超過。作業中断。", len(GEMINI_API_KEYS))
+        return False
+    new_idx = _gemini_key_index + 1
+    log.warning(
+        "\n" + "=" * 60 + "\n"
+        "🔄 API キー切替アラート\n"
+        "  エラー: %s\n"
+        "  切替: キー #%d → キー #%d（全%d個中）\n"
+        "  ⚡ 元のキーのクォータ状況を確認してください\n"
+        + "=" * 60,
+        error_msg, old_idx, new_idx, len(GEMINI_API_KEYS),
+    )
+    return True
+
+
+def _is_quota_error(error: Exception) -> bool:
+    """クォータ・レートリミット系エラーかどうかを判定"""
+    err_str = str(error).lower()
+    quota_keywords = ["429", "quota", "resource_exhausted", "rate limit", "too many requests"]
+    return any(kw in err_str for kw in quota_keywords)
 FAL_API_KEY = os.getenv("FAL_API_KEY", "")
 CREATOMATE_API_KEY = os.getenv("CREATOMATE_API_KEY", "")
 
@@ -100,17 +149,29 @@ def _gemini_generate(system: str, user: str, temperature: float = 0.7) -> str:
     if DRY_RUN:
         log.info("[DRY_RUN] Gemini skip: %s...", user[:80])
         return "ドライランのため生成をスキップしました"
-    _check_key("GEMINI_API_KEY", GEMINI_API_KEY)
-    genai.configure(api_key=GEMINI_API_KEY)
-    model = genai.GenerativeModel(
-        "gemini-2.5-flash",
-        system_instruction=system,
-    )
-    resp = model.generate_content(
-        user,
-        generation_config=genai.GenerationConfig(temperature=temperature),
-    )
-    return resp.text.strip()
+    if not GEMINI_API_KEYS:
+        raise RuntimeError("GEMINI_API_KEY が設定されていません。.env を確認してください。")
+
+    while True:
+        api_key = _current_gemini_key()
+        try:
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel(
+                "gemini-2.5-flash",
+                system_instruction=system,
+            )
+            resp = model.generate_content(
+                user,
+                generation_config=genai.GenerationConfig(temperature=temperature),
+            )
+            return resp.text.strip()
+        except Exception as e:
+            if _is_quota_error(e):
+                if _rotate_gemini_key(str(e)):
+                    continue
+                else:
+                    raise RuntimeError(f"全APIキーがクォータ超過 — {e}") from e
+            raise
 
 
 # ---------------------------------------------------------------------------
@@ -633,43 +694,68 @@ def generate_voices(segments: list[str], voice_id: str) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# 8. 動画生成（Veo3 via fal.run）
+# 8. 動画生成（Veo 3.1 via Gemini API）
 # ---------------------------------------------------------------------------
+VEO_MODEL = "veo-3.1-generate-preview"
+VEO_POLL_INTERVAL = 10   # seconds
+VEO_MAX_WAIT = 1800      # 30 minutes
+
+
 def generate_single_video(prompt: str) -> str:
-    """1カットの動画をqueue経由で生成し、URLを返す"""
+    """1カットの動画を Gemini API (Veo 3.1) で生成し、URLを返す。
+    クォータ超過時は次の API キーに自動切替してリトライする。
+    """
     if DRY_RUN:
         return f"https://dry-run.example.com/video/{hash(prompt) % 10000}.mp4"
-    try:
-        data = _fal_queue(
-            "fal-ai/veo3/fast",
-            {
-                "prompt": prompt,
-                "aspect_ratio": "9:16",
-                "duration": "6s",
-                "resolution": "720p",
-                "generate_audio": False,
-                "auto_fix": True,
-            },
-            poll_interval=15,
-            max_wait=1800,
-        )
-        return data.get("video", {}).get("url", "")
-    except Exception as e:
-        log.error("Video generation failed: %s", e)
-        return f"error: {e}"
+    if not GEMINI_API_KEYS:
+        raise RuntimeError("GEMINI_API_KEY が設定されていません。.env を確認してください。")
+
+    while True:
+        api_key = _current_gemini_key()
+        key_label = f"キー #{_gemini_key_index + 1}/{len(GEMINI_API_KEYS)}"
+        try:
+            log.info("Veo 3.1 動画生成開始 (%s)", key_label)
+            client = genai_new.Client(api_key=api_key)
+            operation = client.models.generate_videos(
+                model=VEO_MODEL,
+                prompt=prompt,
+                config=genai_types.GenerateVideosConfig(
+                    aspect_ratio="9:16",
+                    length_seconds=6,
+                    number_of_videos=1,
+                ),
+            )
+            # ポーリングで完了を待つ
+            elapsed = 0
+            while not operation.done:
+                if elapsed >= VEO_MAX_WAIT:
+                    raise TimeoutError(f"Veo 3.1 generation timed out after {VEO_MAX_WAIT}s")
+                time.sleep(VEO_POLL_INTERVAL)
+                elapsed += VEO_POLL_INTERVAL
+                operation = client.operations.get(operation)
+                log.info("Veo 3.1 poll: %ds elapsed, done=%s", elapsed, operation.done)
+
+            generated = operation.result.generated_videos[0]
+            video_uri = generated.video.uri
+            log.info("Veo 3.1 video generated (%s): %s", key_label, video_uri)
+            return video_uri
+        except Exception as e:
+            if _is_quota_error(e):
+                if _rotate_gemini_key(str(e)):
+                    log.info("新しいキーでリトライします...")
+                    continue  # 次のキーでリトライ
+                else:
+                    return f"error: 全APIキーがクォータ超過 — {e}"
+            log.error("Video generation failed (%s): %s", key_label, e)
+            return f"error: {e}"
 
 
 def generate_videos(prompts: list[str]) -> list[str]:
-    """全カットの動画を並列生成（Veo3は重いので並列数を制限）"""
+    """全カットの動画を順次生成（Veo 3.1 は1本ずつ確実に）"""
     urls = [""] * len(prompts)
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures = {
-            executor.submit(generate_single_video, p): i
-            for i, p in enumerate(prompts)
-        }
-        for future in as_completed(futures):
-            idx = futures[future]
-            urls[idx] = future.result()
+    for i, prompt in enumerate(prompts):
+        log.info("Generating video %d/%d...", i + 1, len(prompts))
+        urls[i] = generate_single_video(prompt)
     return urls
 
 
@@ -1024,7 +1110,7 @@ def run_workflow(
             all_prompts[si] = results["school_prompts"][idx]
 
     # --- Step 7: 動画生成 ---
-    _progress(7, f"Veo3で{total_cuts}カットの動画を生成中...")
+    _progress(7, f"Veo 3.1で{total_cuts}カットの動画を生成中...")
     video_urls = generate_videos(all_prompts)
 
     # --- Step 8: Creatomate合成 ---

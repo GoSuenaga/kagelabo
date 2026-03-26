@@ -6,7 +6,7 @@ Stable Audioで複数パターン生成
 import requests, os
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 
 bgm_dir = "output/workflow_002/no01/bgm"

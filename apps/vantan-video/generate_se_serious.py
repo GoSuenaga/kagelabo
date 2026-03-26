@@ -6,7 +6,7 @@ fal-ai/stable-audio でテキストから効果音を生成
 import requests, os, time
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 
 se_base = "clients/vantan/se"

@@ -7,7 +7,7 @@ from gspread_formatting import *
 import time
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 
 # === workflow_config.json から設定読み込み ===
 with open("workflow_config.json") as f:

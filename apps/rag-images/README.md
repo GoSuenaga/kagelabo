@@ -92,3 +92,4 @@ apps/rag-images/
 | `/api/versions/{num}` | GET | 全バージョン一覧 |
 | `/api/select/{num}/{version}` | POST | バージョン選択（0=最新に戻す） |
 | `/api/status/{num}` | POST | QCステータス更新（pending/approved/rejected） |
+| `/api/status/approve-all` | POST | 全ブリーフを一括 OK（現在のカートリッジ） |

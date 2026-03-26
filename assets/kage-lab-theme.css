@@ -1,0 +1,241 @@
+/**
+ * kage-lab / 影プロジェクト 共通ダークテーマ
+ * 各アプリは body または .kl-group-* でアクセントを切り替え
+ */
+:root {
+  --kl-bg: #0b0d11;
+  --kl-bg-elevated: #0f1218;
+  --kl-surface: #141820;
+  --kl-surface-2: #1a2029;
+  --kl-border: #2a3140;
+  --kl-text: #e8ecf2;
+  --kl-text-muted: #8b95a8;
+  --kl-green: #3fb978;
+  --kl-red: #e85d5d;
+  --kl-yellow: #c9a227;
+  --kl-blue: #5a9fd4;
+
+  --kl-accent: #7a8aa8;
+  --kl-accent-muted: rgba(122, 138, 168, 0.18);
+  --kl-accent-border: rgba(122, 138, 168, 0.45);
+}
+
+/* RAG — 落ち着いた紫系 */
+.kl-theme-rag,
+.kl-group-rag {
+  --kl-accent: #9b8bc4;
+  --kl-accent-muted: rgba(155, 139, 196, 0.15);
+  --kl-accent-border: rgba(155, 139, 196, 0.4);
+}
+
+/* VANTAN 動画 — 琥珀・銅 */
+.kl-theme-vantan,
+.kl-group-vantan {
+  --kl-accent: #b8956a;
+  --kl-accent-muted: rgba(184, 149, 106, 0.15);
+  --kl-accent-border: rgba(184, 149, 106, 0.45);
+}
+
+/* KAGE 秘書 — 青灰（信頼） */
+.kl-theme-kage,
+.kl-group-kage {
+  --kl-accent: #6a9ec9;
+  --kl-accent-muted: rgba(106, 158, 201, 0.15);
+  --kl-accent-border: rgba(106, 158, 201, 0.45);
+}
+
+/* Tools / 管理 — 緑灰 */
+.kl-theme-tools,
+.kl-group-tools {
+  --kl-accent: #7a9f8a;
+  --kl-accent-muted: rgba(122, 159, 138, 0.15);
+  --kl-accent-border: rgba(122, 159, 138, 0.4);
+}
+
+body.kl-surface-body {
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Helvetica Neue", sans-serif;
+  background: var(--kl-bg);
+  color: var(--kl-text);
+  min-height: 100vh;
+}
+
+/* コントロールパネル共通 */
+.kl-topbar {
+  background: var(--kl-surface);
+  border-bottom: 1px solid var(--kl-border);
+  padding: 14px 22px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kl-topbar h1 {
+  font-size: 1.15em;
+  font-weight: 650;
+  color: var(--kl-text);
+  letter-spacing: 0.02em;
+}
+
+.kl-topbar h1 .kl-brand-mark,
+.kl-topbar .kl-brand-mark {
+  color: var(--kl-accent);
+  font-weight: 700;
+  margin-right: 4px;
+}
+
+.kl-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 22px 18px 40px;
+}
+
+.kl-group-title {
+  font-size: 0.72em;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--kl-text-muted);
+  margin: 28px 0 10px;
+  padding-left: 2px;
+}
+
+.kl-group-title:first-of-type {
+  margin-top: 8px;
+}
+
+/* アプリ行：カード + 横長概要 */
+.kl-app-lane {
+  display: grid;
+  grid-template-columns: minmax(260px, 320px) 1fr;
+  gap: 12px;
+  align-items: stretch;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 880px) {
+  .kl-app-lane {
+    grid-template-columns: 1fr;
+  }
+}
+
+.kl-app-overview {
+  background: var(--kl-surface);
+  border: 1px solid var(--kl-border);
+  border-radius: 10px;
+  padding: 12px 16px 14px;
+  font-size: 0.78em;
+  line-height: 1.55;
+  color: var(--kl-text-muted);
+  border-left: 3px solid var(--kl-accent);
+  box-shadow: 0 0 0 1px var(--kl-accent-muted) inset;
+}
+
+.kl-app-overview h4 {
+  font-size: 0.68em;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--kl-accent);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+
+.kl-app-overview dl {
+  display: grid;
+  grid-template-columns: 108px 1fr;
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.kl-app-overview dt {
+  margin: 0;
+  color: var(--kl-text-muted);
+  font-weight: 500;
+}
+
+.kl-app-overview dd {
+  margin: 0;
+  color: var(--kl-text);
+}
+
+.kl-app-overview code {
+  font-size: 0.92em;
+  background: var(--kl-surface-2);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--kl-accent);
+}
+
+/* クリック可能カード（control_panel） */
+.kl-card {
+  background: var(--kl-surface);
+  border: 1px solid var(--kl-border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color 0.15s, background 0.15s;
+  cursor: pointer;
+  position: relative;
+  min-height: 72px;
+}
+
+a.kl-card:hover,
+div.kl-card:not(.kl-card-offline):hover {
+  border-color: var(--kl-accent-border);
+  background: var(--kl-surface-2);
+}
+
+.kl-card.kl-card-offline {
+  opacity: 0.48;
+  cursor: default;
+}
+
+.kl-card-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  background: var(--kl-accent-muted);
+}
+
+.kl-card-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.kl-card-name {
+  font-size: 0.92em;
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
+.kl-card-desc {
+  font-size: 0.78em;
+  color: var(--kl-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kl-card-ver {
+  font-size: 0.68em;
+  color: var(--kl-text-muted);
+  background: var(--kl-surface-2);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+
+.kl-footer-note {
+  text-align: center;
+  padding: 22px;
+  font-size: 0.72em;
+  color: var(--kl-text-muted);
+}

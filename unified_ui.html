@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>kage-lab Studio</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+:root {
+  --bg:#0d1117; --bg2:#161b22; --bg3:#1c2333;
+  --border:#30363d; --text:#e6edf3; --text2:#8b949e;
+  --accent:#b8956a; --accent-muted:rgba(184,149,106,0.15); --accent-border:rgba(184,149,106,0.4);
+  --green:#3fb950; --red:#f85149; --yellow:#d29922; --blue:#58a6ff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:-apple-system,'Hiragino Sans','SF Pro Text',sans-serif;
+  background:var(--bg);color:var(--text);
+  height:100dvh;display:flex;flex-direction:column;overflow:hidden;
+  -webkit-text-size-adjust:100%;position:fixed;top:0;left:0;width:100%;
+}
+
+/* ── Top Bar ── */
+.top-bar{
+  background:var(--bg2);padding:8px 16px;display:flex;align-items:center;
+  justify-content:space-between;border-bottom:1px solid var(--border);
+  min-height:44px;flex-shrink:0;
+}
+.top-bar .brand{color:var(--accent);font-weight:700;font-size:15px}
+.top-bar .ver{color:var(--text2);font-size:10px;margin-left:4px}
+.top-bar .status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;background:var(--green);margin-right:4px}
+.top-bar .status-dot.busy{background:var(--yellow);animation:pulse 1s infinite}
+@keyframes pulse{50%{opacity:0.4}}
+.top-bar .info{font-size:11px;color:var(--text2);display:flex;align-items:center;gap:6px}
+
+/* ── Tab Content ── */
+.tab-content{flex:1;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.tab-pane{display:none;height:100%;overflow-y:auto}
+.tab-pane.active{display:flex;flex-direction:column}
+
+/* ── Bottom Nav ── */
+.bottom-nav{
+  background:var(--bg2);border-top:1px solid var(--border);display:flex;
+  padding-bottom:max(4px,env(safe-area-inset-bottom));flex-shrink:0;
+}
+body.keyboard-open .bottom-nav{display:none}
+.bottom-nav button{
+  flex:1;background:none;border:none;color:var(--text2);font-size:10px;
+  padding:8px 0 4px;cursor:pointer;display:flex;flex-direction:column;
+  align-items:center;gap:2px;transition:color 0.15s;
+}
+.bottom-nav button .nav-icon{width:20px;height:20px}
+.bottom-nav button.active{color:var(--accent)}
+
+/* ── Shared ── */
+.btn{padding:6px 12px;border-radius:6px;border:1px solid var(--border);cursor:pointer;font-size:12px;font-weight:600;background:var(--bg2);color:var(--text);transition:all 0.15s;font-family:inherit}
+.btn:active{background:var(--bg3)}
+.btn-accent{background:var(--accent-muted);border-color:var(--accent-border);color:var(--accent)}
+.btn-green{background:rgba(63,185,120,0.15);border-color:rgba(63,185,120,0.4);color:var(--green)}
+.btn-red{background:rgba(232,93,93,0.15);border-color:rgba(232,93,93,0.4);color:var(--red)}
+.btn-danger{background:var(--red);border-color:var(--red);color:#fff}
+.btn:disabled{opacity:0.35;cursor:not-allowed}
+.badge{display:inline-block;padding:1px 7px;border-radius:8px;font-size:11px;font-weight:600}
+
+/* ============================================================
+   DASHBOARD TAB
+   ============================================================ */
+.dash{padding:16px}
+.dash-section{margin-bottom:20px}
+.dash-section h3{font-size:12px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.progress-card{background:var(--bg2);border-radius:12px;padding:16px;border:1px solid var(--border)}
+.progress-big{font-size:36px;font-weight:700;color:var(--accent)}
+.progress-big span{font-size:18px;color:var(--text2)}
+.progress-bar-bg{width:100%;height:8px;background:var(--bg);border-radius:4px;margin:8px 0;overflow:hidden}
+.progress-bar-fill{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--green));transition:width 0.5s}
+.progress-labels{display:flex;justify-content:space-between;font-size:11px;color:var(--text2)}
+.pattern-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.pattern-dot{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 4px;text-align:center;font-size:11px}
+.pattern-dot .pid{font-weight:600;margin-bottom:2px}
+.pattern-dot .pstatus{font-size:9px;color:var(--text2)}
+.pattern-dot.done{border-color:var(--green);background:rgba(63,185,80,0.1)}
+.pattern-dot.wip{border-color:var(--yellow);background:rgba(210,153,34,0.1)}
+.pattern-dot.todo{border-color:var(--border);opacity:0.5}
+.server-row{display:flex;gap:8px;flex-wrap:wrap}
+.server-chip{background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:8px 12px;font-size:12px;flex:1;min-width:90px}
+.server-chip .chip-label{font-size:10px;color:var(--text2);display:block;margin-bottom:2px}
+.server-chip .chip-value{font-weight:600}
+.next-tasks{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:12px 16px}
+.next-tasks li{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border);list-style:none;line-height:1.5}
+.next-tasks li:last-child{border-bottom:none}
+.next-tasks li::before{content:"→ ";color:var(--accent);font-weight:600}
+
+/* ============================================================
+   STUDIO TAB (Video Generation Control)
+   ============================================================ */
+.studio-view{padding:12px}
+.studio-toolbar{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;align-items:center}
+.studio-toolbar .sel-info{font-size:11px;color:var(--text2)}
+.studio-filter{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:10px}
+.filter-btn{padding:3px 8px;border-radius:12px;border:1px solid var(--border);cursor:pointer;font-size:11px;background:none;color:var(--text2);transition:all 0.15s}
+.filter-btn:active,.filter-btn.active{background:var(--accent);color:#0b0d11;border-color:var(--accent)}
+
+/* Pattern section (mobile card style) */
+.pat-card{background:var(--bg2);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.pat-card-hdr{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer}
+.pat-card-hdr .pat-check{margin-right:2px;width:18px;height:18px}
+.pat-card-hdr .pat-id{font-weight:700;font-size:13px;color:var(--accent);min-width:36px}
+.pat-card-hdr .pat-info{flex:1;min-width:0}
+.pat-card-hdr .pat-school{font-size:11px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pat-card-hdr .pat-bar{width:60px;height:4px;background:var(--bg);border-radius:2px;overflow:hidden;flex-shrink:0}
+.pat-card-hdr .pat-bar .fill{height:100%;border-radius:2px;transition:width 0.5s}
+.pat-card-hdr .pat-status{font-size:11px;font-weight:600;flex-shrink:0}
+.fill-idle{background:var(--bg2)}.fill-running{background:var(--blue);animation:pulse 1.5s infinite}.fill-done{background:var(--green)}.fill-error{background:var(--red)}.fill-stopped{background:var(--yellow)}.fill-partial{background:var(--yellow)}.fill-queued{background:var(--accent)}
+
+.pat-card-body{display:none;padding:0 12px 12px}
+.pat-card.open .pat-card-body{display:block}
+
+/* Actions row for a pattern */
+.pat-actions-row{display:flex;gap:4px;flex-wrap:wrap;margin-bottom:8px}
+.pat-msg{font-size:11px;color:var(--text2);margin-bottom:8px}
+.pat-qc-row{display:flex;gap:4px;margin-bottom:8px;font-size:11px}
+
+/* Cut list (compact for mobile) */
+.cut-list{display:flex;flex-direction:column;gap:6px}
+.cut-item{display:flex;gap:8px;align-items:center;background:var(--bg);border-radius:8px;padding:8px;border:1px solid transparent}
+.cut-item.qc-approved{border-color:rgba(63,185,120,0.3)}
+.cut-item.qc-rejected{border-color:rgba(232,93,93,0.3)}
+.cut-thumb{width:48px;height:85px;border-radius:6px;overflow:hidden;background:var(--bg2);flex-shrink:0}
+.cut-thumb video{width:100%;height:100%;object-fit:cover}
+.cut-thumb .ph{display:flex;align-items:center;justify-content:center;height:100%;font-size:9px;color:var(--text2)}
+.cut-detail{flex:1;min-width:0}
+.cut-detail .cut-badges{display:flex;gap:3px;margin-bottom:3px;flex-wrap:wrap}
+.cut-detail .cut-badges .badge{font-size:10px;padding:0 5px}
+.badge-num{background:var(--accent-muted);color:var(--accent)}
+.badge-qc-pending{background:rgba(139,149,168,0.15);color:var(--text2)}
+.badge-qc-approved{background:rgba(63,185,120,0.15);color:var(--green)}
+.badge-qc-rejected{background:rgba(232,93,93,0.15);color:var(--red)}
+.badge-edited{background:rgba(184,149,106,0.15);color:var(--accent)}
+.cut-detail .cut-nar{font-size:11px;color:var(--text);line-height:1.4;max-height:2.8em;overflow:hidden}
+.cut-detail .cut-telop{font-size:10px;color:var(--accent);margin-top:1px}
+.cut-detail audio{width:100%;height:20px;margin-top:4px}
+.cut-actions{display:flex;flex-direction:column;gap:3px;flex-shrink:0}
+.cut-actions .btn{font-size:10px;padding:3px 6px;min-width:32px;text-align:center}
+
+/* ============================================================
+   ACTIONS TAB
+   ============================================================ */
+.actions{padding:16px}
+.action-group{margin-bottom:20px}
+.action-group h3{font-size:12px;color:var(--text2);margin-bottom:8px;text-transform:uppercase;letter-spacing:0.5px}
+.action-btns{display:flex;flex-wrap:wrap;gap:8px}
+.action-btn{
+  background:var(--bg2);border:1px solid var(--border);color:var(--text);border-radius:10px;
+  padding:12px 16px;font-size:13px;cursor:pointer;flex:1;text-align:center;
+  transition:all 0.15s;font-family:inherit;min-width:70px;
+}
+.action-btn:active{background:var(--bg3);border-color:var(--accent)}
+.action-btn .action-icon{font-size:20px;display:block;margin-bottom:4px}
+.action-result{
+  background:var(--bg2);border:1px solid var(--border);border-radius:10px;
+  padding:12px;margin-top:12px;font-size:12px;font-family:'SF Mono','Menlo',monospace;
+  white-space:pre-wrap;word-break:break-all;max-height:300px;overflow-y:auto;display:none;
+}
+
+/* ============================================================
+   CHAT TAB
+   ============================================================ */
+.chat-container{flex:1;display:flex;flex-direction:column;overflow:hidden}
+#chat-messages{flex:1;overflow-y:auto;padding:12px;-webkit-overflow-scrolling:touch}
+.msg{margin-bottom:16px;line-height:1.6}
+.msg .label{font-weight:700;font-size:11px;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
+.msg.user .label{color:var(--accent)}
+.msg.ai .label{color:#c792ea}
+.msg .body{background:var(--bg2);border-radius:10px;padding:12px;font-size:14px;word-break:break-word;overflow-x:auto;border:1px solid var(--border)}
+.msg .body h1,.msg .body h2,.msg .body h3{margin:8px 0 4px;font-size:15px;color:var(--accent)}
+.msg .body p{margin:4px 0}
+.msg .body code{background:var(--bg);padding:1px 5px;border-radius:4px;font-family:'SF Mono','Menlo',monospace;font-size:13px}
+.msg .body pre{background:var(--bg);padding:10px;border-radius:6px;overflow-x:auto;margin:8px 0}
+.msg .body pre code{background:none;padding:0}
+.msg .body ul,.msg .body ol{padding-left:20px;margin:4px 0}
+.msg.ai .body{background:var(--bg3)}
+.msg.system .body{background:transparent;border:none;color:var(--text2);font-size:12px;text-align:center;padding:8px}
+.msg.memo .label{color:var(--yellow)}
+.msg.memo .body{background:rgba(210,153,34,0.08);border:1px dashed var(--yellow);font-size:13px}
+
+#chat-input-area{
+  background:var(--bg2);padding:6px 8px;padding-bottom:max(6px,env(safe-area-inset-bottom));
+  border-top:1px solid var(--border);display:flex;gap:6px;align-items:flex-end;flex-shrink:0;
+}
+#msg-input{
+  flex:1;background:var(--bg);color:var(--text);border:1px solid var(--border);
+  border-radius:8px;padding:8px 10px;font-size:16px;resize:none;min-height:36px;
+  max-height:100px;font-family:-apple-system,sans-serif;line-height:1.3;
+}
+#msg-input:focus{outline:none;border-color:var(--accent)}
+#send-btn{
+  background:var(--bg3);color:var(--accent);border:1px solid var(--border);
+  border-radius:8px;padding:8px 14px;font-size:15px;font-weight:600;cursor:pointer;
+  white-space:nowrap;min-height:36px;
+}
+#send-btn:active{background:var(--border)}
+#send-btn:disabled{opacity:0.3}
+#send-btn.queue-mode{background:var(--yellow)}
+#like-btn{
+  background:none;border:none;font-size:28px;cursor:pointer;padding:0 4px;
+  min-height:36px;display:flex;align-items:center;transition:transform 0.15s;
+  -webkit-user-select:none;user-select:none;filter:grayscale(0.3);
+}
+#like-btn:active{transform:scale(1.4);filter:grayscale(0)}
+.queue-badge{background:var(--yellow);color:var(--bg);border-radius:10px;padding:1px 7px;font-size:11px;font-weight:700;margin-left:6px}
+.spinner{display:inline-block;width:14px;height:14px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin-right:6px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* ── Modals ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.85);display:none;z-index:200;align-items:center;justify-content:center}
+.modal-bg.open{display:flex}
+.modal-inner{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:92%;max-width:500px;max-height:90vh;overflow-y:auto;padding:16px}
+.modal-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.modal-header h2{font-size:14px}
+.modal-close{background:none;border:none;color:var(--text2);font-size:1.4em;cursor:pointer;padding:4px 8px}
+.modal-section{margin-bottom:10px}
+.modal-section label{display:block;font-size:12px;color:var(--text2);margin-bottom:3px;font-weight:600}
+.modal-section textarea,.modal-section input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px;font-size:13px;font-family:inherit;resize:vertical}
+.modal-section textarea{min-height:50px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+
+/* Toast */
+.toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border);border-radius:8px;padding:10px 20px;font-size:13px;z-index:300;opacity:0;transition:opacity 0.3s;pointer-events:none}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+
+<!-- Top Bar -->
+<div class="top-bar">
+  <div><span class="brand">kage-lab</span><span class="ver">Studio</span></div>
+  <div class="info">
+    <span id="top-status"><span class="status-dot" id="status-dot"></span><span id="status-label">idle</span></span>
+    <span id="top-uptime"></span>
+  </div>
+</div>
+
+<!-- Tab Panes -->
+<div class="tab-content">
+
+  <!-- DASHBOARD -->
+  <div id="pane-dash" class="tab-pane active">
+    <div class="dash" id="dash-content">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+        <h3 style="font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:0.5px;margin:0">Dashboard</h3>
+        <button class="btn" onclick="loadDashboard()" style="font-size:11px;padding:4px 10px">Refresh</button>
+      </div>
+      <div id="dash-body"><p style="text-align:center;color:var(--text2);padding:40px">Loading...</p></div>
+    </div>
+  </div>
+
+  <!-- STUDIO -->
+  <div id="pane-studio" class="tab-pane">
+    <div class="studio-view" id="studio-view">
+      <div class="studio-toolbar">
+        <button class="btn" onclick="stSelectAll()">All</button>
+        <button class="btn" onclick="stSelectNone()">None</button>
+        <span class="sel-info" id="st-sel-count"></span>
+        <button class="btn btn-accent" onclick="stBatchGen(['video','narration'])">素材生成</button>
+        <button class="btn btn-green" onclick="stBatchGen(['compose'])">合成</button>
+        <button class="btn btn-danger" onclick="stStopAll()">停止</button>
+      </div>
+      <div class="studio-filter" id="st-filters">
+        <button class="filter-btn active" onclick="stFilter('all',this)">All</button>
+        <button class="filter-btn" onclick="stFilter('done',this)">完成</button>
+        <button class="filter-btn" onclick="stFilter('partial',this)">途中</button>
+        <button class="filter-btn" onclick="stFilter('none',this)">未着手</button>
+      </div>
+      <div id="st-patterns">Loading...</div>
+    </div>
+  </div>
+
+  <!-- ACTIONS -->
+  <div id="pane-actions" class="tab-pane">
+    <div class="actions">
+      <div class="action-group">
+        <h3>Git</h3>
+        <div class="action-btns">
+          <button class="action-btn" onclick="quickAction('git-status')"><span class="action-icon">&#128203;</span>Status</button>
+          <button class="action-btn" onclick="quickAction('git-pull')"><span class="action-icon">&#11015;&#65039;</span>Pull</button>
+          <button class="action-btn" onclick="quickAction('git-push')"><span class="action-icon">&#11014;&#65039;</span>Push</button>
+          <button class="action-btn" onclick="quickAction('git-log')"><span class="action-icon">&#128220;</span>Log</button>
+        </div>
+      </div>
+      <div class="action-group">
+        <h3>Services</h3>
+        <div class="action-btns">
+          <button class="action-btn" onclick="launchService('rag')"><span class="action-icon">&#128248;</span>RAG</button>
+          <button class="action-btn" onclick="launchService('vlog')"><span class="action-icon">&#127916;</span>Vlog</button>
+        </div>
+      </div>
+      <div class="action-group">
+        <h3>Chat Shortcuts</h3>
+        <div class="action-btns">
+          <button class="action-btn" onclick="sendPreset('STATUS.md を読んで現状を教えて')"><span class="action-icon">&#128202;</span>Status</button>
+          <button class="action-btn" onclick="sendPreset('次にやるべきことを教えて')"><span class="action-icon">&#128221;</span>次のタスク</button>
+        </div>
+      </div>
+      <div id="action-result" class="action-result"></div>
+    </div>
+  </div>
+
+  <!-- CHAT -->
+  <div id="pane-chat" class="tab-pane">
+    <div class="chat-container">
+      <div id="chat-messages"></div>
+      <div id="chat-input-area">
+        <textarea id="msg-input" rows="1" placeholder="Message..."></textarea>
+        <button id="like-btn" onclick="sendLike()" title="👍 = Yes / ありがとう">👍</button>
+        <button id="send-btn" onclick="send()">Send<span id="queue-badge" class="queue-badge" style="display:none">0</span></button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Bottom Nav -->
+<div class="bottom-nav">
+  <button class="active" onclick="switchTab('dash',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+    Home
+  </button>
+  <button onclick="switchTab('studio',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+    Studio
+  </button>
+  <button onclick="switchTab('actions',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+    Actions
+  </button>
+  <button onclick="switchTab('chat',this)">
+    <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    Chat
+  </button>
+</div>
+
+<!-- Edit Modal -->
+<div class="modal-bg" id="edit-modal">
+  <div class="modal-inner">
+    <div class="modal-header"><h2 id="edit-modal-title">カット編集</h2><button class="modal-close" onclick="closeModal('edit-modal')">&times;</button></div>
+    <div class="modal-section"><label>ナレーション</label><textarea id="edit-narration" rows="3"></textarea></div>
+    <div class="modal-section"><label>テロップ</label><input id="edit-telop" type="text"></div>
+    <div class="modal-section"><label>映像プロンプト (JP)</label><textarea id="edit-prompt-jp" rows="2"></textarea></div>
+    <div class="modal-section"><label>映像プロンプト (EN)</label><textarea id="edit-prompt-en" rows="2"></textarea></div>
+    <div class="modal-section"><label>修正理由</label><input id="edit-reason" type="text" placeholder="任意"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('edit-modal')">Cancel</button>
+      <button class="btn btn-accent" onclick="saveEdit(false)">Save</button>
+      <button class="btn btn-green" onclick="saveEdit(true)">Save & Regen</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ============================================================
+// Globals
+// ============================================================
+let currentTab='dash', stData={}, stCid='', stFilter_='all', dashData=null;
+let isStreaming=false, localQueue=[], autoTimer=null, stTimer=null;
+let EDIT_PAT='', EDIT_CUT='';
+
+// ============================================================
+// Tab switching
+// ============================================================
+function switchTab(tab,btn){
+  document.querySelectorAll('.tab-pane').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.bottom-nav button').forEach(b=>b.classList.remove('active'));
+  document.getElementById('pane-'+tab).classList.add('active');
+  btn.classList.add('active');
+  currentTab=tab;
+  if(tab==='dash'){loadDashboard();startDashAuto();}else{stopDashAuto();}
+  if(tab==='studio'){loadStudio();startStudioAuto();}else{stopStudioAuto();}
+}
+function startDashAuto(){stopDashAuto();autoTimer=setInterval(loadDashboard,30000);}
+function stopDashAuto(){if(autoTimer){clearInterval(autoTimer);autoTimer=null;}}
+function startStudioAuto(){stopStudioAuto();stTimer=setInterval(loadStudio,3000);}
+function stopStudioAuto(){if(stTimer){clearInterval(stTimer);stTimer=null;}}
+
+// ============================================================
+// Dashboard
+// ============================================================
+async function loadDashboard(){
+  try{
+    const r=await fetch('/api/dashboard');
+    if(r.status===401){location.href='/login';return;}
+    const d=await r.json();dashData=d;renderDashboard(d);
+    const dot=document.getElementById('status-dot');
+    const label=document.getElementById('status-label');
+    dot.className='status-dot'+(d.claude_busy?' busy':'');
+    label.textContent=d.claude_busy?'busy':'idle';
+    document.getElementById('top-uptime').textContent=d.uptime||'';
+  }catch(e){document.getElementById('dash-body').innerHTML='<p style="color:var(--red);text-align:center;padding:40px">'+esc(e.message)+'</p>';}
+}
+function renderDashboard(d){
+  if(d.error){document.getElementById('dash-body').innerHTML='<p style="text-align:center;color:var(--text2);padding:40px">'+esc(d.error)+'</p>';return;}
+  const pct=d.total>0?Math.round(d.completed/d.total*100):0;
+  let h='';
+  // Progress
+  h+='<div class="dash-section"><div class="progress-card">';
+  h+='<div class="progress-big">'+d.completed+'<span> / '+d.total+'</span></div>';
+  h+='<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:'+pct+'%"></div></div>';
+  h+='<div class="progress-labels"><span>'+pct+'%</span><span>'+d.in_progress+' WIP / '+d.not_started+' TODO</span></div>';
+  h+='</div></div>';
+  // Grid
+  h+='<div class="dash-section"><h3>Patterns</h3><div class="pattern-grid">';
+  for(const p of d.patterns){
+    let cls='todo';if(p.has_final)cls='done';else if(p.video_done>0||p.audio_done>0)cls='wip';
+    let icon=p.has_final?'&#9989;':p.video_done>0?'&#127916;':'&#11036;';
+    h+='<div class="pattern-dot '+cls+'"><div class="pid">'+p.id+'</div><div class="pstatus">'+icon+' '+p.video+'</div></div>';
+  }
+  h+='</div></div>';
+  // Server
+  h+='<div class="dash-section"><h3>Server</h3><div class="server-row">';
+  h+='<div class="server-chip"><span class="chip-label">Claude</span><span class="chip-value">'+(d.claude_busy?'&#9889; Busy':'&#9989; Idle')+'</span></div>';
+  h+='<div class="server-chip"><span class="chip-label">Uptime</span><span class="chip-value">'+(d.uptime||'—')+'</span></div>';
+  if(d.tunnel_url)h+='<div class="server-chip" style="min-width:100%"><span class="chip-label">Public URL</span><span class="chip-value" style="font-size:10px;word-break:break-all">'+esc(d.tunnel_url)+'</span></div>';
+  h+='</div></div>';
+  // Tasks
+  if(d.next_tasks&&d.next_tasks.length>0){
+    h+='<div class="dash-section"><h3>Next Steps</h3><ul class="next-tasks">';
+    for(const t of d.next_tasks)h+='<li>'+esc(t)+'</li>';
+    h+='</ul></div>';
+  }
+  document.getElementById('dash-body').innerHTML=h;
+}
+
+// ============================================================
+// Studio (Video Generation)
+// ============================================================
+async function loadStudio(){
+  try{
+    const r=await fetch('/api/status');
+    const resp=await r.json();
+    stData=resp.patterns||resp;stCid=resp.active_cid||'';
+    if(!stCid||Object.keys(stData).length===0){
+      document.getElementById('st-patterns').innerHTML='<p style="text-align:center;color:var(--text2);padding:40px">カートリッジ未読込</p>';
+      return;
+    }
+    renderStudio();
+  }catch(e){document.getElementById('st-patterns').innerHTML='<p style="color:var(--red);text-align:center;padding:20px">'+esc(e.message)+'</p>';}
+}
+function renderStudio(){
+  const keys=Object.keys(stData).sort();
+  let h='';
+  keys.forEach(k=>{
+    const d=stData[k];
+    // Filter
+    if(stFilter_==='done'&&!d.has_final)return;
+    if(stFilter_==='partial'&&(d.videos===0||d.has_final))return;
+    if(stFilter_==='none'&&d.videos>0)return;
+    const pct=d.has_final?100:(d.total_cuts>0?Math.round(d.videos/d.total_cuts*100):0);
+    const st=d.status||'idle';
+    const fc=fillClass(st,d);
+    h+='<div class="pat-card" id="st-pat-'+k+'">';
+    h+='<div class="pat-card-hdr" onclick="stToggle(\''+k+'\')">';
+    h+='<input type="checkbox" class="pat-check" data-key="'+k+'" onclick="event.stopPropagation();stUpdateSel()">';
+    h+='<span class="pat-id">'+k+'</span>';
+    h+='<div class="pat-info"><div class="pat-school">'+esc(d.school||'')+' — '+esc(d.field||'')+'</div></div>';
+    h+='<div class="pat-bar"><div class="fill '+fc+'" style="width:'+pct+'%"></div></div>';
+    h+='<span class="pat-status">'+statusLabel(st,d)+'</span>';
+    h+='</div>';
+    // Body
+    h+='<div class="pat-card-body">';
+    h+='<div class="pat-msg" id="st-msg-'+k+'">'+esc(d.message||'')+'</div>';
+    h+='<div class="pat-actions-row">';
+    if(st==='running'){
+      h+='<button class="btn btn-danger" onclick="stStop(\''+k+'\')">Stop</button>';
+    }else{
+      if(d.videos===0&&d.audio===0)h+='<button class="btn btn-accent" onclick="stGen(\''+k+'\',\'素材生成\',[\'video\',\'narration\'])">素材生成</button>';
+      if(!d.has_final&&d.videos>=d.total_cuts&&d.audio>=d.total_cuts)h+='<button class="btn btn-green" onclick="stGen(\''+k+'\',\'合成\',[\'compose\'])">合成</button>';
+      if(d.videos>0&&d.videos<d.total_cuts)h+='<button class="btn btn-accent" onclick="stGen(\''+k+'\',\'動画続き\',[\'video\'])">動画 続き</button>';
+      if(d.videos>0)h+='<button class="btn btn-red" onclick="stRegen(\''+k+'\')">全やり直し</button>';
+    }
+    h+='</div>';
+    // QC summary
+    const qc=d.qc_counts||{};
+    if(qc.approved||qc.rejected||qc.pending){
+      h+='<div class="pat-qc-row">';
+      if(qc.approved)h+='<span class="badge badge-qc-approved">OK '+qc.approved+'</span>';
+      if(qc.rejected)h+='<span class="badge badge-qc-rejected">NG '+qc.rejected+'</span>';
+      if(qc.pending)h+='<span class="badge badge-qc-pending">'+qc.pending+'</span>';
+      h+='<button class="btn" style="margin-left:auto;font-size:10px;padding:2px 6px" onclick="stApproveAll(\''+k+'\')">All OK</button>';
+      h+='</div>';
+    }
+    // Cut list
+    h+='<div class="cut-list">';
+    (d.cuts||[]).forEach(c=>{
+      const num=c.num;
+      const hasVid=c.has_video,hasAud=c.has_audio;
+      const qcSt=c.qc_status||'pending';
+      const isEd=c.narration_override||c.telop_override||c.prompt_jp_override||c.prompt_en_override;
+      const vidUrl=hasVid?'/media/'+stCid+'/'+k+'/videos/カット'+num.padStart(2,'0')+'.mp4':'';
+      const narText=c.narration_override||c.narration||'';
+      const telopText=c.telop_override||c.telop||'';
+      h+='<div class="cut-item qc-'+qcSt+'">';
+      // Thumb
+      h+='<div class="cut-thumb">';
+      if(hasVid)h+='<video src="'+vidUrl+'" preload="metadata" muted playsinline onclick="this.paused?this.play():this.pause()"></video>';
+      else h+='<div class="ph">—</div>';
+      h+='</div>';
+      // Detail
+      h+='<div class="cut-detail">';
+      h+='<div class="cut-badges">';
+      h+='<span class="badge badge-num">#'+num.padStart(2,'0')+'</span>';
+      h+='<span class="badge badge-qc-'+qcSt+'">'+(qcSt==='approved'?'OK':qcSt==='rejected'?'NG':'—')+'</span>';
+      if(isEd)h+='<span class="badge badge-edited">ed</span>';
+      h+='</div>';
+      h+='<div class="cut-nar">'+esc(narText)+'</div>';
+      if(telopText)h+='<div class="cut-telop">'+esc(telopText)+'</div>';
+      if(hasAud)h+='<audio src="/media/'+stCid+'/'+k+'/audio/カット'+num.padStart(2,'0')+'.mp3" controls preload="metadata"></audio>';
+      h+='</div>';
+      // Actions
+      h+='<div class="cut-actions">';
+      h+='<button class="btn btn-green" onclick="stQC(\''+k+'\',\''+num+'\',\'approved\')">OK</button>';
+      h+='<button class="btn btn-red" onclick="stQC(\''+k+'\',\''+num+'\',\'rejected\')">NG</button>';
+      h+='<button class="btn" onclick="stEdit(\''+k+'\',\''+num+'\')">Ed</button>';
+      h+='</div>';
+      h+='</div>';
+    });
+    h+='</div></div></div>';
+  });
+  if(!h)h='<p style="text-align:center;color:var(--text2);padding:20px">フィルタに一致なし</p>';
+  document.getElementById('st-patterns').innerHTML=h;
+}
+
+function stToggle(k){document.getElementById('st-pat-'+k)?.classList.toggle('open');}
+function stSelectAll(){document.querySelectorAll('#st-patterns .pat-check').forEach(c=>c.checked=true);stUpdateSel();}
+function stSelectNone(){document.querySelectorAll('#st-patterns .pat-check').forEach(c=>c.checked=false);stUpdateSel();}
+function stUpdateSel(){
+  const n=Array.from(document.querySelectorAll('#st-patterns .pat-check:checked')).length;
+  document.getElementById('st-sel-count').textContent=n>0?n+'件':'';
+}
+function stFilter(val,btn){
+  stFilter_=val;
+  document.querySelectorAll('#st-filters .filter-btn').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  renderStudio();
+}
+function fillClass(st,d){
+  if(st==='running')return'fill-running';if(st==='queued')return'fill-queued';
+  if(d.has_final)return'fill-done';if(st==='error')return'fill-error';
+  if(st==='stopped')return'fill-stopped';if(d.videos>0)return'fill-partial';return'fill-idle';
+}
+function statusLabel(st,d){
+  if(st==='running')return'<span style="color:var(--blue)">実行中</span>';
+  if(d.has_final)return'<span style="color:var(--green)">完成</span>';
+  if(st==='error')return'<span style="color:var(--red)">Error</span>';
+  if(st==='stopped')return'<span style="color:var(--yellow)">停止</span>';
+  if(st==='queued')return'<span style="color:var(--accent)">待機</span>';
+  if(d.videos>0)return d.videos+'/'+d.total_cuts;return'—';
+}
+
+// Studio actions
+function stGen(k,label,steps){
+  if(!confirm(k+' '+label+'?'))return;
+  fetch('/api/generate/'+k,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({steps})});
+  toast(k+' '+label+' 開始');setTimeout(loadStudio,1000);
+}
+function stStop(k){fetch('/api/stop/'+k,{method:'POST'});toast(k+' 停止');}
+function stRegen(k){
+  if(!confirm(k+' 全素材やり直し?'))return;
+  fetch('/api/regenerate/'+k,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({target:'all'})});
+  toast(k+' 再生成開始');
+}
+function stStopAll(){fetch('/api/stop-all',{method:'POST'});toast('全停止');}
+function stBatchGen(steps){
+  const pats=Array.from(document.querySelectorAll('#st-patterns .pat-check:checked')).map(c=>c.dataset.key);
+  if(!pats.length){toast('パターンを選択');return;}
+  if(!confirm(pats.join(', ')+' → ['+steps.join(',')+']?'))return;
+  fetch('/api/generate-batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({patterns:pats,steps})});
+  toast('バッチ開始');setTimeout(loadStudio,1000);
+}
+function stQC(k,num,status){
+  fetch('/api/cut/'+k+'/'+num+'/status',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify({qc_status:status})});
+  toast('#'+num.padStart(2,'0')+' → '+(status==='approved'?'OK':'NG'));
+  setTimeout(loadStudio,500);
+}
+function stApproveAll(k){
+  fetch('/api/pattern/'+k+'/approve-all',{method:'PUT'});toast(k+' All OK');setTimeout(loadStudio,500);
+}
+function stEdit(k,num){
+  EDIT_PAT=k;EDIT_CUT=num;
+  const d=stData[k];if(!d)return;
+  const c=d.cuts.find(x=>x.num===num);if(!c)return;
+  document.getElementById('edit-modal-title').textContent=k+' #'+num;
+  document.getElementById('edit-narration').value=c.narration_override||c.narration||'';
+  document.getElementById('edit-telop').value=c.telop_override||c.telop||'';
+  document.getElementById('edit-prompt-jp').value=c.prompt_jp_override||c.prompt_jp||'';
+  document.getElementById('edit-prompt-en').value=c.prompt_en_override||c.prompt_en||'';
+  document.getElementById('edit-reason').value='';
+  openModal('edit-modal');
+}
+function saveEdit(andRegen){
+  const payload={
+    narration:document.getElementById('edit-narration').value,
+    telop:document.getElementById('edit-telop').value,
+    prompt_jp:document.getElementById('edit-prompt-jp').value,
+    prompt_en:document.getElementById('edit-prompt-en').value,
+    reason:document.getElementById('edit-reason').value,
+  };
+  fetch('/api/cut/'+EDIT_PAT+'/'+EDIT_CUT+'/text',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)})
+    .then(()=>{
+      toast('保存完了');closeModal('edit-modal');
+      if(andRegen){
+        if(confirm(EDIT_PAT+' カット'+EDIT_CUT+' 再生成?'))
+          fetch('/api/regenerate-cut/'+EDIT_PAT+'/'+EDIT_CUT,{method:'POST'});
+      }
+      setTimeout(loadStudio,500);
+    });
+}
+
+// ============================================================
+// Actions
+// ============================================================
+async function quickAction(action){
+  if(action==='git-push'&&!confirm('git push?'))return;
+  const el=document.getElementById('action-result');el.style.display='block';el.textContent='Running...';
+  try{
+    const r=await fetch('/api/quick-action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+    if(r.status===401){location.href='/login';return;}
+    const d=await r.json();el.textContent=d.result||d.error||'(no output)';
+  }catch(e){el.textContent='Error: '+e.message;}
+}
+async function launchService(id){
+  try{
+    const r=await fetch('/api/launch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({service:id})});
+    const d=await r.json();toast((d.name||id)+': '+(d.status||d.error));
+  }catch(e){toast('Error: '+e.message);}
+}
+function sendPreset(text){
+  const chatBtn=document.querySelectorAll('.bottom-nav button')[3];
+  switchTab('chat',chatBtn);
+  document.getElementById('msg-input').value=text;send();
+}
+function sendLike(){
+  // 👍 = 「Yes進めて」or「ありがとう」
+  const btn=document.getElementById('like-btn');
+  btn.style.transform='scale(1.4)';btn.style.filter='grayscale(0)';
+  setTimeout(()=>{btn.style.transform='';btn.style.filter='';},300);
+  document.getElementById('msg-input').value='👍';send();
+}
+
+// ============================================================
+// Chat (SSE streaming)
+// ============================================================
+const chatEl=document.getElementById('chat-messages');
+const msgInput=document.getElementById('msg-input');
+const sendBtn=document.getElementById('send-btn');
+msgInput.addEventListener('input',()=>{msgInput.style.height='auto';msgInput.style.height=Math.min(msgInput.scrollHeight,100)+'px';});
+msgInput.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send();}});
+
+function esc(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function addMsg(role,content,isMd){
+  const div=document.createElement('div');div.className='msg '+role;
+  if(role==='system')div.innerHTML='<div class="body">'+esc(content)+'</div>';
+  else{const label=role==='user'?'YOU':'CLAUDE';
+    div.innerHTML='<div class="label">'+label+'</div><div class="body">'+(isMd?renderMd(content):esc(content))+'</div>';}
+  chatEl.appendChild(div);chatEl.scrollTop=chatEl.scrollHeight;return div;
+}
+function renderMd(t){try{if(typeof marked!=='undefined')return marked.parse(t);}catch(e){}return esc(t);}
+
+// Queue
+function updateQueueBadge(){
+  const b=document.getElementById('queue-badge');
+  if(localQueue.length>0){b.style.display='inline';b.textContent=localQueue.length;sendBtn.classList.add('queue-mode');}
+  else{b.style.display='none';sendBtn.classList.remove('queue-mode');}
+}
+function queueMessage(text){
+  localQueue.push({text,timestamp:Date.now()/1000});
+  fetch('/api/queue',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})}).catch(()=>{});
+  const div=document.createElement('div');div.className='msg memo';
+  div.innerHTML='<div class="label">MEMO</div><div class="body">'+esc(text)+'</div>';
+  chatEl.appendChild(div);chatEl.scrollTop=chatEl.scrollHeight;
+  updateQueueBadge();
+}
+
+async function send(){
+  const text=msgInput.value.trim();if(!text)return;
+  if(isStreaming){msgInput.value='';msgInput.style.height='auto';queueMessage(text);return;}
+  msgInput.value='';msgInput.style.height='auto';sendBtn.disabled=true;isStreaming=true;
+  addMsg('user',text,false);
+  const aiDiv=addMsg('ai','',false);const bodyEl=aiDiv.querySelector('.body');
+  bodyEl.innerHTML='<span class="spinner"></span>Connecting...';
+  let fullText='';
+  try{
+    const res=await fetch('/api/ask',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({message:text})});
+    if(res.status===401){location.href='/login';return;}
+    const reader=res.body.getReader();const decoder=new TextDecoder();let buffer='';
+    bodyEl.innerHTML='';
+    while(true){
+      const{value,done}=await reader.read();if(done)break;
+      buffer+=decoder.decode(value,{stream:true});
+      const lines=buffer.split('\n');buffer=lines.pop();
+      for(const line of lines){
+        if(!line.startsWith('data: '))continue;
+        try{
+          const ev=JSON.parse(line.slice(6).trim());
+          if(ev.type==='delta'){fullText+=ev.text;bodyEl.innerHTML=renderMd(fullText);chatEl.scrollTop=chatEl.scrollHeight;}
+          else if(ev.type==='error'){fullText+='\n\n**Error:** '+ev.text;bodyEl.innerHTML=renderMd(fullText);}
+        }catch(e){}
+      }
+    }
+    if(!fullText)bodyEl.innerHTML='<span style="color:var(--text2)">(no response)</span>';
+  }catch(e){bodyEl.innerHTML='<span style="color:var(--red)">Error: '+esc(e.message)+'</span>';}
+  isStreaming=false;sendBtn.disabled=false;chatEl.scrollTop=chatEl.scrollHeight;
+  // Show queued memos
+  if(localQueue.length>0){
+    const combined=localQueue.map((m,i)=>(i+1)+'. '+m.text).join('\n');
+    addMsg('system','MEMO '+localQueue.length+'件 — 次の送信に含めてください');
+    localQueue=[];updateQueueBadge();fetch('/api/queue',{method:'DELETE'}).catch(()=>{});
+  }
+}
+
+// ============================================================
+// Helpers
+// ============================================================
+function toast(msg,dur){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),dur||2500);}
+function openModal(id){document.getElementById(id).classList.add('open');}
+function closeModal(id){document.getElementById(id).classList.remove('open');}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')document.querySelectorAll('.modal-bg.open').forEach(m=>m.classList.remove('open'));});
+
+// ── Keyboard-aware resize (iOS Safari) ──
+(function(){
+  const vv=window.visualViewport;if(!vv)return;
+  let fullH=vv.height;
+  function upd(){
+    const ch=vv.height;
+    document.body.style.height=ch+'px';
+    document.body.classList.toggle('keyboard-open',fullH-ch>150);
+    document.body.style.top=vv.offsetTop+'px';
+    if(currentTab==='chat')requestAnimationFrame(()=>chatEl.scrollTop=chatEl.scrollHeight);
+  }
+  vv.addEventListener('resize',upd);vv.addEventListener('scroll',upd);
+  window.addEventListener('orientationchange',()=>setTimeout(()=>{fullH=vv.height;upd();},200));
+  upd();
+})();
+
+// ── Init ──
+loadDashboard();startDashAuto();
+</script>
+</body>
+</html>

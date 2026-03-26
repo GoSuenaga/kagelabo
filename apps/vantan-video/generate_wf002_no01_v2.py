@@ -9,7 +9,7 @@ workflow_002 / No.01 v2
 import requests, time, os, random, gspread, re
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 creatomate_key = os.getenv("CREATOMATE_API_KEY")
 headers = {"Authorization": f"Key {fal_key}", "Content-Type": "application/json"}

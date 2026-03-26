@@ -6,7 +6,7 @@ TikTokっぽいポップで耳に残る短い音
 import requests, os
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 
 se_dir = "clients/vantan/se/真面目バージョン/04_tiktok"

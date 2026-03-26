@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>kage-lab 開発プロジェクト サマリ</title>
+<style>
+  @page { size: A4 landscape; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, 'Hiragino Sans', 'Helvetica Neue', sans-serif; background: #f5f5f5; color: #222; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+
+  /* ── 印刷ボタン ── */
+  .print-bar {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+    background: #fff; border-bottom: 2px solid #b8956a;
+    padding: 10px 24px; display: flex; align-items: center; gap: 16px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+  }
+  .print-bar span { font-size: 13px; color: #666; }
+  .print-btn {
+    padding: 8px 28px; border: none; border-radius: 8px;
+    background: #b8956a; color: #fff; font-size: 14px; font-weight: 700;
+    cursor: pointer; transition: opacity 0.15s;
+  }
+  .print-btn:hover { opacity: 0.85; }
+  body { padding-top: 52px; }
+
+  /* ── A4 スライド ── */
+  .slide {
+    width: 297mm; height: 210mm; /* A4 横 */
+    padding: 28mm 32mm;
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+    background: #fff;
+    border: 1px solid #ddd;
+    margin: 10px auto;
+  }
+  .slide:last-child { page-break-after: auto; }
+
+  /* ── 共通パーツ ── */
+  .page-num { position: absolute; bottom: 14mm; right: 20mm; font-size: 10px; color: #999; }
+  .slide-title { font-size: 28px; font-weight: 800; color: #8b6a3a; margin-bottom: 6mm; letter-spacing: 0.02em; }
+  .slide-subtitle { font-size: 15px; color: #666; margin-bottom: 8mm; }
+  h3 { font-size: 16px; color: #8b6a3a; margin: 5mm 0 3mm; font-weight: 700; }
+  p, li { font-size: 13px; line-height: 1.8; color: #333; }
+  ul { padding-left: 5mm; }
+  li { margin-bottom: 1mm; }
+  .accent { color: #8b6a3a; font-weight: 700; }
+  .green { color: #1a8a4a; }
+  .yellow { color: #b8860b; }
+  .muted { color: #888; }
+  .small { font-size: 11px; color: #888; }
+  strong { color: #111; }
+
+  /* ── テーブル ── */
+  table { border-collapse: collapse; width: 100%; margin: 3mm 0; }
+  th { background: #f0ebe3; color: #8b6a3a; font-size: 12px; font-weight: 700; text-align: left; padding: 6px 12px; border-bottom: 2px solid #d4c5a9; }
+  td { font-size: 12px; padding: 5px 12px; border-bottom: 1px solid #e8e8e8; color: #333; }
+  tr:hover { background: rgba(184,149,106,0.06); }
+
+  /* ── SVG 図解共通 ── */
+  svg text { font-family: -apple-system, 'Hiragino Sans', sans-serif; }
+  .box { rx: 10; ry: 10; }
+  .box-fill { fill: #f5f5f5; stroke: #ccc; stroke-width: 1.5; }
+  .box-accent { fill: #faf5ed; stroke: #b8956a; stroke-width: 1.5; }
+  .box-green { fill: #eef8f2; stroke: #2e9e5e; stroke-width: 1.5; }
+  .box-blue { fill: #eef4fa; stroke: #3a7cb8; stroke-width: 1.5; }
+  .box-purple { fill: #f3eef8; stroke: #7a5aaa; stroke-width: 1.5; }
+  .arrow { stroke: #999; stroke-width: 1.5; fill: none; marker-end: url(#arrowhead); }
+  .arrow-accent { stroke: #b8956a; stroke-width: 2; fill: none; marker-end: url(#arrowhead-accent); }
+  .label { font-size: 13px; fill: #222; font-weight: 700; text-anchor: middle; }
+  .sublabel { font-size: 10px; fill: #777; text-anchor: middle; }
+  .icon-text { font-size: 22px; text-anchor: middle; dominant-baseline: central; }
+
+  /* ── カード ── */
+  .cards { display: flex; gap: 14px; flex-wrap: wrap; }
+  .card { flex: 1; min-width: 140px; background: #fafafa; border: 1px solid #ddd; border-radius: 10px; padding: 14px 16px; }
+  .card-icon { font-size: 28px; margin-bottom: 6px; }
+  .card-title { font-size: 14px; font-weight: 700; color: #222; margin-bottom: 4px; }
+  .card-desc { font-size: 11px; color: #666; line-height: 1.6; }
+  .card-status { font-size: 11px; font-weight: 600; margin-top: 6px; }
+
+  /* ── ステップバー ── */
+  .steps { display: flex; gap: 0; align-items: center; margin: 4mm 0; }
+  .step { display: flex; flex-direction: column; align-items: center; flex: 1; position: relative; }
+  .step-circle { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 6px; }
+  .step-circle.ai { background: #b8956a; }
+  .step-circle.human { background: #3a7cb8; }
+  .step-circle.auto { background: #2e9e5e; }
+  .step-label { font-size: 11px; font-weight: 700; color: #222; text-align: center; }
+  .step-sub { font-size: 9px; color: #777; text-align: center; margin-top: 2px; }
+  .step-arrow { color: #aaa; font-size: 18px; margin: 0 -2px; padding-bottom: 20px; }
+  .step-who { font-size: 9px; margin-top: 4px; padding: 1px 8px; border-radius: 8px; }
+  .who-ai { background: rgba(184,149,106,0.15); color: #8b6a3a; }
+  .who-human { background: rgba(58,124,184,0.15); color: #2a5a8b; }
+  .who-auto { background: rgba(46,158,94,0.15); color: #1a6a3a; }
+
+  /* ── プログレスバー ── */
+  .progress-bar { height: 8px; background: #e8e8e8; border-radius: 4px; overflow: hidden; margin: 2px 0; }
+  .progress-fill { height: 100%; border-radius: 4px; }
+  .fill-green { background: linear-gradient(90deg, #2e9e5e, #3fb978); }
+  .fill-yellow { background: linear-gradient(90deg, #b8860b, #e6c84a); }
+
+  /* ── 表紙 ── */
+  .cover { display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; }
+  .cover-title { font-size: 42px; font-weight: 800; color: #8b6a3a; letter-spacing: 0.05em; margin-bottom: 8mm; }
+  .cover-sub { font-size: 18px; color: #666; margin-bottom: 4mm; }
+  .cover-date { font-size: 14px; color: #999; }
+  .cover-logo { font-size: 64px; margin-bottom: 10mm; }
+
+  /* ── 用語集 2カラム ── */
+  .glossary { columns: 2; column-gap: 20px; }
+  .glossary-item { break-inside: avoid; margin-bottom: 3mm; padding: 4px 0; border-bottom: 1px solid #e8e8e8; }
+  .glossary-term { font-size: 12px; font-weight: 700; color: #8b6a3a; }
+  .glossary-def { font-size: 11px; color: #555; line-height: 1.6; }
+
+  @media print {
+    body { background: #fff; padding-top: 0; }
+    .print-bar { display: none; }
+    .slide { border: none; margin: 0; box-shadow: none; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===== 印刷ボタン ===== -->
+<div class="print-bar">
+  <button class="print-btn" onclick="window.print()">🖨️ 印刷 / PDF保存</button>
+  <span>A4横向き・9ページ ｜ ブラウザの印刷設定で「用紙: A4」「向き: 横」を選んでください</span>
+</div>
+
+<!-- ===== 矢印マーカー定義 ===== -->
+<svg style="position:absolute;width:0;height:0">
+  <defs>
+    <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#999"/></marker>
+    <marker id="arrowhead-accent" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#b8956a"/></marker>
+    <marker id="arrowhead-green" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto"><path d="M0,0 L8,3 L0,6Z" fill="#2e9e5e"/></marker>
+  </defs>
+</svg>
+
+<!-- ========================================================= -->
+<!-- PAGE 1: 表紙                                               -->
+<!-- ========================================================= -->
+<div class="slide cover">
+  <div class="cover-logo">🏗️</div>
+  <div class="cover-title">kage-lab</div>
+  <div class="cover-sub">開発プロジェクト サマリ</div>
+  <div class="cover-sub" style="font-size:14px; color:#b8956a;">AI × 広告制作 自動化ツール集</div>
+  <div style="height:10mm"></div>
+  <div class="cover-date">2026年3月25日 時点</div>
+  <div class="page-num">1 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 2: kage-lab とは？（4アプリ図解）                       -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">kage-lab とは？</div>
+  <p style="margin-bottom:6mm;">広告制作を AI で自動化・効率化する <strong>4つのアプリ</strong> が入った「ツール箱」です。</p>
+
+  <div class="cards">
+    <div class="card" style="border-color:#b8956a;">
+      <div class="card-icon">🤖</div>
+      <div class="card-title">KAGE（影秘書）</div>
+      <div class="card-desc">Notionと連携するAI秘書チャット。<br>予定管理・タスク整理・朝ブリーフィングを自動で。</div>
+      <div class="card-status green">✅ 本番稼働中 v0.302</div>
+    </div>
+    <div class="card" style="border-color:#2a6a9e;">
+      <div class="card-icon">🎬</div>
+      <div class="card-title">VANTAN 動画生成</div>
+      <div class="card-desc">学校広告のVlog風動画をAIで自動生成。<br>台本→静止画→動画→ナレーション→合成。</div>
+      <div class="card-status yellow">🔄 制作中（12/16本完了）</div>
+    </div>
+    <div class="card" style="border-color:#a078c8;">
+      <div class="card-icon">🖼️</div>
+      <div class="card-title">RAG（画像QC）</div>
+      <div class="card-desc">リクルート広告バナーをAI生成し、<br>品質チェック→デザイナー納品。</div>
+      <div class="card-status yellow">🔄 C003 進行中</div>
+    </div>
+    <div class="card" style="border-color:#1a8a4a;">
+      <div class="card-icon">📱</div>
+      <div class="card-title">CCM（モバイル操作）</div>
+      <div class="card-desc">iPhoneからAIツールを遠隔操作。<br>外出先からも生成を開始・監視。</div>
+      <div class="card-status green">✅ 動作OK</div>
+    </div>
+  </div>
+
+  <div style="margin-top:8mm;">
+    <svg width="100%" height="80" viewBox="0 0 700 80">
+      <!-- 中央のkage-labボックス -->
+      <rect x="220" y="10" width="260" height="50" class="box box-accent"/>
+      <text x="350" y="32" class="label" style="font-size:15px;">kage-lab（ツール箱）</text>
+      <text x="350" y="48" class="sublabel">1つのフォルダに 4アプリがまとまっている</text>
+      <!-- 左のアイコン群 -->
+      <text x="60" y="25" class="icon-text">🤖</text>
+      <text x="120" y="25" class="icon-text">🎬</text>
+      <text x="60" y="58" class="icon-text">🖼️</text>
+      <text x="120" y="58" class="icon-text">📱</text>
+      <line x1="150" y1="35" x2="218" y2="35" class="arrow-accent"/>
+      <!-- 右の矢印（成果物） -->
+      <line x1="482" y1="35" x2="540" y2="35" class="arrow-accent"/>
+      <text x="620" y="30" class="label" style="font-size:12px;">動画・画像・</text>
+      <text x="620" y="46" class="label" style="font-size:12px;">チャット応答</text>
+    </svg>
+  </div>
+
+  <div class="page-num">2 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 3: 全体像フロー図                                      -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">全体像：どこに何があるか</div>
+  <p class="slide-subtitle">このプロジェクトで使っている場所と、それぞれの役割</p>
+
+  <svg width="100%" height="300" viewBox="0 0 700 300">
+    <!-- ── 自分のPC ── -->
+    <rect x="20" y="20" width="300" height="260" rx="14" ry="14" fill="rgba(184,149,106,0.06)" stroke="#b8956a" stroke-width="2" stroke-dasharray="6,4"/>
+    <text x="170" y="50" class="label" style="font-size:16px; fill:#b8956a;">🖥️ 自分のPC（ローカル）</text>
+
+    <rect x="40" y="68" width="120" height="44" class="box box-accent"/>
+    <text x="100" y="86" class="label" style="font-size:11px;">コード</text>
+    <text x="100" y="100" class="sublabel" style="font-size:9px;">プログラム本体</text>
+
+    <rect x="170" y="68" width="120" height="44" class="box box-green"/>
+    <text x="230" y="86" class="label" style="font-size:11px;">生成物</text>
+    <text x="230" y="100" class="sublabel" style="font-size:9px;">動画・画像・音声</text>
+
+    <rect x="40" y="124" width="120" height="44" class="box box-fill"/>
+    <text x="100" y="142" class="label" style="font-size:11px;">APIキー 🔑</text>
+    <text x="100" y="156" class="sublabel" style="font-size:9px;">外に出さない</text>
+
+    <rect x="170" y="124" width="120" height="44" class="box box-fill"/>
+    <text x="230" y="142" class="label" style="font-size:11px;">SE / BGM 🎵</text>
+    <text x="230" y="156" class="sublabel" style="font-size:9px;">音源ライブラリ</text>
+
+    <!-- Claude Code -->
+    <rect x="40" y="186" width="250" height="40" class="box box-purple"/>
+    <text x="165" y="204" class="label" style="font-size:11px;">🧠 Claude Code（AI開発パートナー）</text>
+    <text x="165" y="218" class="sublabel" style="font-size:9px;">コードを書く・修正する</text>
+
+    <!-- ブラウザ -->
+    <rect x="40" y="236" width="250" height="34" class="box box-blue"/>
+    <text x="165" y="256" class="label" style="font-size:11px;">🌐 ブラウザ（localhost で操作・確認）</text>
+
+    <!-- ── GitHub ── -->
+    <rect x="400" y="20" width="260" height="100" rx="14" ry="14" fill="rgba(90,159,212,0.06)" stroke="#5a9fd4" stroke-width="2"/>
+    <text x="530" y="50" class="label" style="font-size:14px; fill:#5a9fd4;">☁️ GitHub</text>
+    <text x="530" y="72" class="sublabel">コードのバックアップ</text>
+    <text x="530" y="88" class="sublabel">変更履歴がすべて残る</text>
+
+    <!-- ── Railway ── -->
+    <rect x="400" y="140" width="260" height="70" rx="14" ry="14" fill="rgba(63,185,120,0.06)" stroke="#3fb978" stroke-width="2"/>
+    <text x="530" y="168" class="label" style="font-size:14px; fill:#3fb978;">🚀 Railway（サーバー）</text>
+    <text x="530" y="188" class="sublabel">KAGEだけがここで24時間稼働</text>
+
+    <!-- ── Dropbox ── -->
+    <rect x="400" y="230" width="120" height="50" rx="14" ry="14" fill="rgba(90,159,212,0.06)" stroke="#5a9fd4" stroke-width="1.5"/>
+    <text x="460" y="252" class="label" style="font-size:11px;">📦 Dropbox</text>
+    <text x="460" y="266" class="sublabel" style="font-size:9px;">動画の自動同期</text>
+
+    <!-- ── Google Sheets ── -->
+    <rect x="540" y="230" width="120" height="50" rx="14" ry="14" fill="rgba(63,185,120,0.06)" stroke="#3fb978" stroke-width="1.5"/>
+    <text x="600" y="252" class="label" style="font-size:11px;">📊 Sheets</text>
+    <text x="600" y="266" class="sublabel" style="font-size:9px;">台本・進捗管理</text>
+
+    <!-- ── 矢印 ── -->
+    <!-- PC → GitHub -->
+    <path d="M 322 60 L 398 60" class="arrow-accent"/>
+    <text x="360" y="53" style="font-size:9px; fill:#b8956a; text-anchor:middle;">push</text>
+    <path d="M 398 80 L 322 80" style="stroke:#5a9fd4; stroke-width:1.5; fill:none; marker-end:url(#arrowhead);"/>
+    <text x="360" y="93" style="font-size:9px; fill:#5a9fd4; text-anchor:middle;">pull</text>
+
+    <!-- GitHub → Railway -->
+    <path d="M 530 122 L 530 138" style="stroke:#3fb978; stroke-width:1.5; fill:none; marker-end:url(#arrowhead-green);"/>
+    <text x="548" y="133" style="font-size:8px; fill:#3fb978;">自動デプロイ</text>
+
+    <!-- PC → Dropbox -->
+    <path d="M 292 248 L 398 255" class="arrow"/>
+  </svg>
+
+  <div style="display:flex; gap:16px; margin-top:2mm;">
+    <div style="flex:1; font-size:11px; color:#666; background:#f5f0e8; padding:8px 12px; border-radius:8px;">
+      <strong style="color:#b8956a;">💡 ポイント：</strong>コードはGitHubにバックアップ。動画・画像はDropboxで同期。APIキーは絶対にPC外に出さない。
+    </div>
+  </div>
+
+  <div class="page-num">3 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 4: KAGE 詳細                                          -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">🤖 KAGE（影秘書）v0.302</div>
+  <p style="margin-bottom:5mm;">Notionと連携する AI秘書チャット。話しかけるだけで、予定・タスク・メモを自動で整理してくれます。</p>
+
+  <div style="display:flex; gap:16px;">
+    <div style="flex:1.2;">
+      <h3>主な機能</h3>
+      <table>
+        <tr><td>💬 チャット</td><td>自然な会話で指示 → 自動でNotionに保存</td></tr>
+        <tr><td>📅 スケジュール</td><td>予定の登録・確認・スクショからの取込</td></tr>
+        <tr><td>✅ タスク管理</td><td>登録・完了報告・アーカイブ</td></tr>
+        <tr><td>💡 アイデア/メモ</td><td>思いついたことを記録</td></tr>
+        <tr><td>🌅 朝ブリーフィング</td><td>今日の予定 + タスク + ニュース</td></tr>
+        <tr><td>📰 ニュース</td><td>興味に合った記事を自動配信</td></tr>
+        <tr><td>🧠 深掘り分析</td><td>「考えて」で長文アドバイス</td></tr>
+      </table>
+    </div>
+    <div style="flex:0.8;">
+      <h3>技術構成</h3>
+      <table>
+        <tr><td class="accent">AI</td><td>Gemini 2.5 Pro</td></tr>
+        <tr><td class="accent">データ</td><td>Notion（9つのDB）</td></tr>
+        <tr><td class="accent">サーバー</td><td>Railway</td></tr>
+        <tr><td class="accent">コード</td><td>約5,000行</td></tr>
+        <tr><td class="accent">API数</td><td>26エンドポイント</td></tr>
+      </table>
+      <h3>バグ修正状況</h3>
+      <div style="display:flex; gap:8px; font-size:12px; margin-top:2mm;">
+        <span style="background:rgba(63,185,120,0.15); color:#1a8a4a; padding:4px 10px; border-radius:8px; font-weight:700;">✅ 11件 修正済</span>
+        <span style="background:rgba(230,200,74,0.15); color:#b8860b; padding:4px 10px; border-radius:8px; font-weight:700;">🔄 4件 対応中</span>
+        <span style="background:rgba(139,149,168,0.1); color:#666; padding:4px 10px; border-radius:8px; font-weight:700;">⏳ 9件 未対応</span>
+      </div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:5mm;">本番URL</h3>
+  <p style="font-size:12px; color:#2a6a9e;">https://notion-secretary-api-production.up.railway.app/app</p>
+  <p class="small" style="margin-top:2mm;">※ インターネット上で24時間稼働。スマホからもアクセス可。</p>
+
+  <div class="page-num">4 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 5: VANTAN 動画生成（6ステップ図解）                      -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">🎬 VANTAN 動画生成</div>
+  <p style="margin-bottom:3mm;">学校広告のVlog風動画を <strong>6ステップ</strong> で自動生成します。</p>
+
+  <h3>制作フロー（6ステップ）</h3>
+  <div class="steps" style="margin-bottom:5mm;">
+    <div class="step">
+      <div class="step-circle ai">1</div>
+      <div class="step-label">台本生成</div>
+      <div class="step-sub">AIがカット割り・<br>セリフを自動作成</div>
+      <div class="step-who who-ai">AI</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-circle human">2</div>
+      <div class="step-label">静止画チェック</div>
+      <div class="step-sub">映像の方向性を<br>人間が確認</div>
+      <div class="step-who who-human">人間</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-circle ai">3</div>
+      <div class="step-label">動画生成</div>
+      <div class="step-sub">OKが出たら<br>4秒動画を生成</div>
+      <div class="step-who who-ai">AI</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-circle ai">4</div>
+      <div class="step-label">ナレーション</div>
+      <div class="step-sub">セリフを<br>音声に変換</div>
+      <div class="step-who who-ai">AI</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-circle auto">5</div>
+      <div class="step-label">SE / BGM</div>
+      <div class="step-sub">効果音・BGMを<br>自動選択</div>
+      <div class="step-who who-auto">自動</div>
+    </div>
+    <div class="step-arrow">→</div>
+    <div class="step">
+      <div class="step-circle ai">6</div>
+      <div class="step-label">合成</div>
+      <div class="step-sub">映像+音声+字幕<br>+ロゴを統合</div>
+      <div class="step-who who-ai">AI</div>
+    </div>
+  </div>
+
+  <div style="background:#f5f0e8; border-radius:8px; padding:8px 14px; font-size:11px; color:#666; margin-bottom:5mm;">
+    💡 <strong style="color:#222;">なぜ静止画チェック？</strong> いきなり動画を作ると時間もコストもかかる。まず静止画で方向性を確認してから動画化することで、やり直しを最小限に。
+  </div>
+
+  <div style="display:flex; gap:16px;">
+    <div style="flex:1;">
+      <h3>使っている AI サービス</h3>
+      <table>
+        <tr><td class="accent">台本</td><td>Gemini（Google AI）</td></tr>
+        <tr><td class="accent">静止画</td><td>Imagen 4（Google AI）</td></tr>
+        <tr><td class="accent">動画</td><td>Veo3（Google AI）</td></tr>
+        <tr><td class="accent">ナレーション</td><td>ElevenLabs（音声AI）</td></tr>
+        <tr><td class="accent">合成</td><td>Creatomate（映像合成）</td></tr>
+      </table>
+    </div>
+    <div style="flex:1;">
+      <h3>現在の進捗（workflow_002）</h3>
+      <p style="font-size:12px; margin-bottom:2mm;">スクール別親子広告 <strong>16パターン</strong></p>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:3mm;">
+        <div class="progress-bar" style="flex:1;">
+          <div class="progress-fill fill-green" style="width:75%;"></div>
+        </div>
+        <span style="font-size:13px; font-weight:700; color:#1a8a4a;">75%</span>
+      </div>
+      <table>
+        <tr><td class="green">✅ 完了</td><td><strong>12本</strong></td></tr>
+        <tr><td class="yellow">🔄 作業中</td><td><strong>3本</strong>（動画生成途中）</td></tr>
+        <tr><td class="muted">⏳ 未着手</td><td><strong>1本</strong></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="page-num">5 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 6: RAG + CCM                                          -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">🖼️ RAG（画像QC）＋ 📱 CCM（モバイル操作）</div>
+
+  <div style="display:flex; gap:24px;">
+    <!-- RAG -->
+    <div style="flex:1;">
+      <h3>RAG — 広告バナー QC ギャラリー v1.0</h3>
+      <p style="margin:3mm 0;">リクルートエージェント広告のバナー画像を AI で生成し、<br>品質チェック → デザイナーへの納品用にエクスポートするツール。</p>
+
+      <svg width="100%" height="110" viewBox="0 0 320 110">
+        <rect x="0" y="10" width="90" height="50" class="box box-accent"/>
+        <text x="45" y="32" class="label" style="font-size:10px;">クリエイティブ</text>
+        <text x="45" y="46" class="label" style="font-size:10px;">ブリーフ</text>
+        <path d="M 92 35 L 118 35" class="arrow-accent"/>
+
+        <rect x="120" y="10" width="80" height="50" class="box box-purple"/>
+        <text x="160" y="32" class="label" style="font-size:10px;">AI画像生成</text>
+        <text x="160" y="46" class="sublabel" style="font-size:8px;">Flux Pro</text>
+        <path d="M 202 35 L 228 35" class="arrow-accent"/>
+
+        <rect x="230" y="10" width="80" height="50" class="box box-blue"/>
+        <text x="270" y="32" class="label" style="font-size:10px;">品質チェック</text>
+        <text x="270" y="46" class="sublabel" style="font-size:8px;">人間が確認</text>
+
+        <path d="M 270 62 L 270 78" style="stroke:#3fb978; stroke-width:1.5; fill:none; marker-end:url(#arrowhead-green);"/>
+        <rect x="210" y="80" width="100" height="26" class="box box-green"/>
+        <text x="260" y="97" class="label" style="font-size:10px;">📤 納品</text>
+      </svg>
+
+      <table>
+        <tr><td class="accent">画像AI</td><td>fal.ai Flux Pro</td></tr>
+        <tr><td class="accent">翻訳</td><td>Gemini（プロンプト英訳）</td></tr>
+        <tr><td class="accent">現在の案件</td><td>C003: PRIME向け 20件</td></tr>
+        <tr><td class="accent">操作画面</td><td>localhost:8000</td></tr>
+      </table>
+    </div>
+
+    <!-- CCM -->
+    <div style="flex:1;">
+      <h3>CCM — Claude Code Mobile v1.0</h3>
+      <p style="margin:3mm 0;">iPhoneから PC上の Claude Code を遠隔操作。<br>外出先からでも動画生成の開始・監視ができます。</p>
+
+      <svg width="100%" height="110" viewBox="0 0 320 110">
+        <!-- iPhone -->
+        <rect x="20" y="10" width="70" height="90" rx="12" ry="12" fill="none" stroke="#5a9fd4" stroke-width="2"/>
+        <text x="55" y="48" class="icon-text" style="font-size:28px;">📱</text>
+        <text x="55" y="76" class="sublabel" style="font-size:9px;">iPhone</text>
+
+        <!-- 矢印 -->
+        <path d="M 92 55 L 128 55" class="arrow"/>
+        <text x="110" y="48" style="font-size:8px; fill:#8b95a8; text-anchor:middle;">VPN</text>
+
+        <!-- PC -->
+        <rect x="130" y="20" width="170" height="70" rx="12" ry="12" fill="rgba(184,149,106,0.06)" stroke="#b8956a" stroke-width="1.5"/>
+        <text x="215" y="45" class="icon-text" style="font-size:28px;">🖥️</text>
+        <text x="215" y="68" class="label" style="font-size:10px;">自分のPC</text>
+        <text x="215" y="82" class="sublabel" style="font-size:9px;">Claude Code が動いている</text>
+      </svg>
+
+      <table>
+        <tr><td class="accent">機能</td><td>ダッシュボード / アクション / チャット</td></tr>
+        <tr><td class="accent">接続</td><td>Tailscale VPN（セキュア）</td></tr>
+        <tr><td class="accent">用途</td><td>外出先から生成開始・進捗確認</td></tr>
+      </table>
+    </div>
+  </div>
+
+  <div class="page-num">6 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 7: 環境の仕組み（Git 解説 — 中学生でもわかる）           -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">環境の仕組み — 中学生でもわかる版</div>
+
+  <h3>Git って何？ → ゲームの「セーブ」と同じです</h3>
+
+  <svg width="100%" height="140" viewBox="0 0 700 140">
+    <!-- セーブポイント -->
+    <rect x="20" y="20" width="660" height="100" rx="12" ry="12" fill="rgba(184,149,106,0.04)" stroke="#d4c5a9" stroke-width="1"/>
+
+    <!-- セーブ1 -->
+    <circle cx="80" cy="55" r="22" fill="rgba(63,185,120,0.15)" stroke="#3fb978" stroke-width="2"/>
+    <text x="80" y="52" class="label" style="font-size:18px;">💾</text>
+    <text x="80" y="90" class="sublabel" style="font-size:10px;">セーブ①</text>
+    <text x="80" y="104" class="sublabel" style="font-size:8px;">チャット機能完成</text>
+
+    <path d="M 104 55 L 156 55" class="arrow" style="stroke:#3fb978;"/>
+
+    <!-- セーブ2 -->
+    <circle cx="180" cy="55" r="22" fill="rgba(63,185,120,0.15)" stroke="#3fb978" stroke-width="2"/>
+    <text x="180" y="52" class="label" style="font-size:18px;">💾</text>
+    <text x="180" y="90" class="sublabel" style="font-size:10px;">セーブ②</text>
+    <text x="180" y="104" class="sublabel" style="font-size:8px;">ニュース機能追加</text>
+
+    <path d="M 204 55 L 256 55" class="arrow" style="stroke:#3fb978;"/>
+
+    <!-- セーブ3 -->
+    <circle cx="280" cy="55" r="22" fill="rgba(63,185,120,0.15)" stroke="#3fb978" stroke-width="2"/>
+    <text x="280" y="52" class="label" style="font-size:18px;">💾</text>
+    <text x="280" y="90" class="sublabel" style="font-size:10px;">セーブ③</text>
+    <text x="280" y="104" class="sublabel" style="font-size:8px;">バグ修正</text>
+
+    <path d="M 304 55 L 356 55" class="arrow" style="stroke:#e6c84a;"/>
+
+    <!-- 今ここ -->
+    <circle cx="380" cy="55" r="22" fill="rgba(184,149,106,0.2)" stroke="#b8956a" stroke-width="2.5"/>
+    <text x="380" y="52" class="label" style="font-size:18px;">⭐</text>
+    <text x="380" y="90" style="font-size:11px; fill:#b8956a; text-anchor:middle; font-weight:700;">今ここ！</text>
+    <text x="380" y="104" class="sublabel" style="font-size:8px;">v0.302</text>
+
+    <!-- 吹き出し -->
+    <rect x="450" y="28" width="210" height="56" rx="10" ry="10" fill="#f5f0e8" stroke="#d4c5a9" stroke-width="1"/>
+    <text x="555" y="48" class="sublabel" style="font-size:10px; fill:#444;">もし何か壊れても…</text>
+    <text x="555" y="66" class="label" style="font-size:12px; fill:#3fb978;">いつでも過去に戻れる！</text>
+    <path d="M 448 56 L 404 56" style="stroke:#2a2e38; stroke-width:1; fill:none;"/>
+  </svg>
+
+  <h3 style="margin-top:4mm;">開発の進め方（4ステップ）</h3>
+
+  <svg width="100%" height="130" viewBox="0 0 700 130">
+    <!-- Step 1 -->
+    <rect x="10" y="10" width="150" height="70" class="box box-accent"/>
+    <text x="85" y="30" class="icon-text" style="font-size:24px;">✏️</text>
+    <text x="85" y="52" class="label" style="font-size:11px;">① コードを書く</text>
+    <text x="85" y="66" class="sublabel" style="font-size:9px;">Claude Code と一緒に</text>
+    <path d="M 162 45 L 178 45" class="arrow-accent"/>
+
+    <!-- Step 2 -->
+    <rect x="180" y="10" width="150" height="70" class="box box-green"/>
+    <text x="255" y="30" class="icon-text" style="font-size:24px;">💾</text>
+    <text x="255" y="52" class="label" style="font-size:11px;">② セーブ＆送信</text>
+    <text x="255" y="66" class="sublabel" style="font-size:9px;">コミット → GitHub へ</text>
+    <path d="M 332 45 L 348 45" class="arrow-accent"/>
+
+    <!-- Step 3 -->
+    <rect x="350" y="10" width="150" height="70" class="box box-blue"/>
+    <text x="425" y="30" class="icon-text" style="font-size:24px;">▶️</text>
+    <text x="425" y="52" class="label" style="font-size:11px;">③ 実行する</text>
+    <text x="425" y="66" class="sublabel" style="font-size:9px;">PCで動かして生成</text>
+    <path d="M 502 45 L 518 45" class="arrow-accent"/>
+
+    <!-- Step 4 -->
+    <rect x="520" y="10" width="150" height="70" class="box box-purple"/>
+    <text x="595" y="30" class="icon-text" style="font-size:24px;">👀</text>
+    <text x="595" y="52" class="label" style="font-size:11px;">④ 確認する</text>
+    <text x="595" y="66" class="sublabel" style="font-size:9px;">ブラウザで結果を見る</text>
+
+    <!-- 戻る矢印 -->
+    <path d="M 595 82 Q 595 110 85 110 Q 40 110 40 82" style="stroke:#555; stroke-width:1; fill:none; stroke-dasharray:4,3; marker-end:url(#arrowhead);"/>
+    <text x="340" y="120" class="sublabel" style="font-size:9px;">問題があれば ① に戻る</text>
+  </svg>
+
+  <h3 style="margin-top:3mm;">ファイルの管理ルール</h3>
+  <table>
+    <tr><th>種類</th><th>どこにある？</th><th>バックアップ</th></tr>
+    <tr><td>プログラム（コード）</td><td>PC → GitHub に送る</td><td>GitHub に履歴付きで保存される</td></tr>
+    <tr><td>APIキー（パスワード類）</td><td>PC上だけ（.envファイル）</td><td>⚠️ 外には絶対に出さない</td></tr>
+    <tr><td>動画・画像（生成物）</td><td>PC上の output/ フォルダ</td><td>Dropbox が自動同期</td></tr>
+    <tr><td>台本・進捗表</td><td>Google スプレッドシート</td><td>Google が自動バックアップ</td></tr>
+  </table>
+
+  <div class="page-num">7 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 8: 進捗                                               -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">進捗サマリ（2026-03-25 時点）</div>
+
+  <h3>アプリ別ステータス</h3>
+  <table>
+    <tr><th>アプリ</th><th>バージョン</th><th>ステータス</th><th>次にやること</th></tr>
+    <tr><td><strong>KAGE</strong></td><td>v0.302</td><td class="green" style="font-weight:700;">✅ 本番稼働中</td><td>ナビ強化、セッション記憶</td></tr>
+    <tr><td><strong>VANTAN 動画</strong></td><td>workflow_002</td><td class="yellow" style="font-weight:700;">🔄 制作中（75%）</td><td>残4パターン（動画→音声→合成）</td></tr>
+    <tr><td><strong>RAG 画像QC</strong></td><td>v1.0</td><td class="yellow" style="font-weight:700;">🔄 C003 進行中</td><td>PRIME向け20件の生成・レビュー</td></tr>
+    <tr><td><strong>CCM</strong></td><td>v1.0</td><td class="green" style="font-weight:700;">✅ 動作OK</td><td>必要に応じて機能追加</td></tr>
+  </table>
+
+  <h3 style="margin-top:5mm;">VANTAN 動画 — パターン別進捗（16本）</h3>
+  <div style="display:flex; gap:8px; flex-wrap:wrap; margin:3mm 0;">
+    <!-- 完了12本 -->
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no02</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no03</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no05</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no06</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no07</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no08</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no09</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no10</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no11</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no12</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no13</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(63,185,120,0.15); border:1px solid #3fb978; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#1a8a4a;">no14</span><span style="font-size:8px; color:#1a8a4a;">✅</span>
+    </div>
+    <!-- 作業中 -->
+    <div style="width:48px; height:48px; background:rgba(230,200,74,0.12); border:1px solid #e6c84a; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#b8860b;">no01</span><span style="font-size:8px; color:#b8860b;">🔄</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(230,200,74,0.12); border:1px solid #e6c84a; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#b8860b;">no15</span><span style="font-size:8px; color:#b8860b;">🔄</span>
+    </div>
+    <div style="width:48px; height:48px; background:rgba(230,200,74,0.12); border:1px solid #e6c84a; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#b8860b;">no16</span><span style="font-size:8px; color:#b8860b;">🔄</span>
+    </div>
+    <!-- 未着手 -->
+    <div style="width:48px; height:48px; background:rgba(139,149,168,0.08); border:1px solid #555; border-radius:8px; display:flex; flex-direction:column; align-items:center; justify-content:center; font-size:10px;">
+      <span style="font-weight:700; color:#666;">no04</span><span style="font-size:8px; color:#666;">⏳</span>
+    </div>
+  </div>
+
+  <h3 style="margin-top:4mm;">KAGE バグ修正ロードマップ</h3>
+  <table>
+    <tr><th>優先順</th><th>テーマ</th><th>内容</th></tr>
+    <tr><td>1</td><td>UI強化</td><td>グローバルナビ化、本番URL共有機能</td></tr>
+    <tr><td>2</td><td>記憶力</td><td>セッション記憶（「さっき言ったやつ」が通じる）</td></tr>
+    <tr><td>3</td><td>夜間フロー</td><td>タスク振り返り確認、夜まとめボタン</td></tr>
+    <tr><td>4</td><td>データ拡張</td><td>Notionのデータ取得範囲を広げる</td></tr>
+    <tr><td>5</td><td>構想</td><td>影部隊（複数秘書インスタンス）</td></tr>
+  </table>
+
+  <div class="page-num">8 / 9</div>
+</div>
+
+<!-- ========================================================= -->
+<!-- PAGE 9: 用語集                                             -->
+<!-- ========================================================= -->
+<div class="slide">
+  <div class="slide-title">用語集</div>
+  <p class="slide-subtitle">このプロジェクトでよく出てくる言葉を、わかりやすく解説します</p>
+
+  <div class="glossary">
+    <div class="glossary-item">
+      <div class="glossary-term">kage-lab</div>
+      <div class="glossary-def">このプロジェクト全体の名前。4つのアプリが入った「ツール箱」</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">KAGE（影秘書）</div>
+      <div class="glossary-def">AI秘書チャットアプリ。Notionに予定やタスクを自動保存する</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">VANTAN</div>
+      <div class="glossary-def">バンタンの学校広告。Vlog風動画を自動生成するプロジェクト</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">RAG</div>
+      <div class="glossary-def">リクルートエージェント広告。バナー画像をAI生成→品質チェックするツール</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">CCM</div>
+      <div class="glossary-def">Claude Code Mobile。iPhoneからPCのAIツールを遠隔操作するアプリ</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Git</div>
+      <div class="glossary-def">プログラムの変更履歴を記録する仕組み。ゲームの「セーブ」と同じ</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">GitHub</div>
+      <div class="glossary-def">Gitの記録をネット上にバックアップする場所。Googleドライブ的な存在</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">コミット</div>
+      <div class="glossary-def">プログラムの変更を記録すること（= セーブポイントを作る）</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">プッシュ（push）</div>
+      <div class="glossary-def">ローカルの変更をGitHubにアップロードすること</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">プル（pull）</div>
+      <div class="glossary-def">GitHubの最新版をローカルにダウンロードすること</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">デプロイ</div>
+      <div class="glossary-def">プログラムをサーバーに設置して、ネットから使えるようにすること</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">ローカル</div>
+      <div class="glossary-def">自分のPC上のこと。ネットに公開されていない</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Railway</div>
+      <div class="glossary-def">KAGEを動かしている外部サーバー（月額課金制）</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Notion</div>
+      <div class="glossary-def">メモ・データベースアプリ。KAGEのデータ保存先</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Gemini</div>
+      <div class="glossary-def">GoogleのAI。台本作成、要約、チャット応答に使用</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Veo3</div>
+      <div class="glossary-def">GoogleのAI動画生成。4秒の動画を1カットずつ作る</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">ElevenLabs</div>
+      <div class="glossary-def">AI音声合成。ナレーションの自動読み上げに使用</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Creatomate</div>
+      <div class="glossary-def">動画合成サービス。映像+音声+字幕+ロゴを1本にまとめる</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Imagen 4</div>
+      <div class="glossary-def">GoogleのAI画像生成。動画前の静止画チェックに使用</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Flux Pro</div>
+      <div class="glossary-def">画像生成AI。RAG（広告バナー）の生成に使用</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">Claude Code</div>
+      <div class="glossary-def">Anthropic社のAIプログラミングツール。開発パートナー</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">API</div>
+      <div class="glossary-def">アプリ同士がデータをやり取りするための窓口</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">スプシ</div>
+      <div class="glossary-def">Google スプレッドシートの略称</div>
+    </div>
+    <div class="glossary-item">
+      <div class="glossary-term">SPA</div>
+      <div class="glossary-def">1つの画面で完結するWebアプリの作り方</div>
+    </div>
+  </div>
+
+  <div class="page-num">9 / 9</div>
+</div>
+
+</body>
+</html>

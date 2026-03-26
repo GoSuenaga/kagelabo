@@ -7,7 +7,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 
 # === スプレッドシートからNo.1データ取得 ===
 gc = gspread.oauth(credentials_filename='oauth_credentials.json', authorized_user_filename='token.json')

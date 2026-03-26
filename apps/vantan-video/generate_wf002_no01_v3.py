@@ -8,7 +8,7 @@ workflow_002 / No.01 v3
 import requests, time, os, random, gspread
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 creatomate_key = os.getenv("CREATOMATE_API_KEY")
 

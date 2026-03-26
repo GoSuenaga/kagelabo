@@ -417,35 +417,142 @@ def run_pipeline(pat_key, steps=None):
         raise Exception(f"ファイルアップロード失敗: {os.path.basename(filepath)}")
 
     try:
-        # ===== Step 1: 動画生成（Veo3.1） =====
+        # ===== Step 1: 動画生成 =====
+        # fal.ai ファースト → Gemini フォールバック
         if "video" in steps:
             from google import genai
+            import fal_client
 
-            # 複数 Gemini API キー（1→2→3 のローテーション）
+            # --- API キー ---
+            _fal_key = os.getenv("FAL_API_KEY", "")
             _gemini_keys = []
             for _ki in range(1, 10):
                 _k = os.getenv(f"GEMINI_API_KEY_{_ki}", "")
                 if _k:
                     _gemini_keys.append(_k)
-            if not _gemini_keys:
-                set_pattern_state(pat_key, status="error", message="GEMINI_API_KEY_1 が .env にありません")
+
+            # --- モデル設定 ---
+            # パターンまたはグローバルの video_model 設定を取得
+            _video_model = pat.get("video_model", "fal-ai/veo3.1")  # デフォルト: fal Veo 3.1
+
+            # --- プロバイダーリスト構築 ---
+            _providers = []
+            if _video_model == "gemini-veo3.1":
+                # Gemini 優先モード
+                if len(_gemini_keys) >= 2:
+                    _providers.append(("gemini", 1, "veo-3.1-generate-preview"))
+                if len(_gemini_keys) >= 3:
+                    _providers.append(("gemini", 2, "veo-3.1-generate-preview"))
+                if len(_gemini_keys) >= 1:
+                    _providers.append(("gemini", 0, "veo-3.1-generate-preview"))
+                if _fal_key:
+                    _providers.append(("fal", "fal-ai/veo3.1"))  # フォールバック
+            else:
+                # fal.ai ファースト（デフォルト）
+                if _fal_key:
+                    _providers.append(("fal", _video_model))
+                # Gemini フォールバック
+                if len(_gemini_keys) >= 2:
+                    _providers.append(("gemini", 1, "veo-3.1-generate-preview"))
+                if len(_gemini_keys) >= 3:
+                    _providers.append(("gemini", 2, "veo-3.1-generate-preview"))
+                if len(_gemini_keys) >= 1:
+                    _providers.append(("gemini", 0, "veo-3.1-generate-preview"))
+            if not _providers:
+                set_pattern_state(pat_key, status="error", message="FAL_API_KEY も GEMINI_API_KEY もありません")
                 return
-            _gemini_idx = 0
 
-            def _get_gemini_client():
-                return genai.Client(api_key=_gemini_keys[_gemini_idx])
+            _provider_idx = 0
 
-            def _rotate_key(err_msg):
-                nonlocal _gemini_idx
-                _gemini_idx += 1
-                if _gemini_idx >= len(_gemini_keys):
+            def _provider_label(idx=None):
+                if idx is None:
+                    idx = _provider_idx
+                p = _providers[idx]
+                if p[0] == "fal":
+                    return p[1]  # e.g. "fal-ai/veo3.1"
+                return f"Gemini KEY_{p[1]+1} ({p[2]})"
+
+            def _rotate_provider(err_msg):
+                nonlocal _provider_idx
+                _provider_idx += 1
+                if _provider_idx >= len(_providers):
                     return False
-                set_pattern_state(pat_key, message=f"キー#{_gemini_idx} → #{_gemini_idx+1} に切替（{err_msg[:60]}）")
+                set_pattern_state(pat_key, message=f"→ {_provider_label()} に切替（{err_msg[:50]}）")
                 return True
 
-            gclient = _get_gemini_client()
+            def _is_retryable(err_msg):
+                lower = err_msg.lower()
+                return ("quota" in lower or "429" in lower or "resource_exhausted" in lower
+                        or "rate" in lower or "動画データなし" in err_msg or "動画ファイルが空" in err_msg)
 
-            set_pattern_state(pat_key, message="Step 1/3: 動画生成（Veo3.1 / Google AI Studio）")
+            # ── fal.ai 生成 ──
+            def _generate_video_fal(prompt, vid_path, cut_num, model_id):
+                """fal.ai 経由で動画生成"""
+                _tag = f"[{model_id}]"
+                os.environ["FAL_KEY"] = _fal_key
+                set_pattern_state(pat_key, message=f"カット{cut_num} {_tag} 生成中...")
+
+                fal_args = {"prompt": prompt, "aspect_ratio": "9:16", "duration": "8s"}
+                # image-to-video の場合は別途画像URLが必要（将来対応）
+
+                result = fal_client.subscribe(model_id, arguments=fal_args, with_logs=False)
+                video_url = result.get("video", {}).get("url", "")
+                if not video_url:
+                    raise RuntimeError(f"fal.ai: 動画URLが返りませんでした")
+                vid_data = req.get(video_url, timeout=180)
+                vid_data.raise_for_status()
+                with open(vid_path, 'wb') as f:
+                    f.write(vid_data.content)
+                vid_size = len(vid_data.content)
+                if vid_size == 0:
+                    os.remove(vid_path)
+                    raise RuntimeError("動画ファイルが空（0KB）")
+                set_cut_state(pat_key, cut_num, video_model=model_id)
+                set_pattern_state(pat_key, message=f"カット{cut_num} ✓ {_tag} ({vid_size//1024}KB)")
+
+            # ── Gemini API 生成 ──
+            def _generate_video_gemini(prompt, vid_path, cut_num, key_idx, model_name):
+                """Gemini API 経由で動画生成"""
+                _tag = f"[{model_name} / Gemini KEY_{key_idx+1}]"
+                gclient = genai.Client(api_key=_gemini_keys[key_idx])
+                set_pattern_state(pat_key, message=f"カット{cut_num} {_tag} 生成中...")
+                op = gclient.models.generate_videos(
+                    model=model_name,
+                    prompt=prompt,
+                    config=genai.types.GenerateVideosConfig(aspect_ratio="9:16", number_of_videos=1),
+                )
+                for poll_i in range(90):
+                    if should_stop():
+                        raise InterruptedError("停止リクエスト")
+                    time.sleep(10)
+                    op = gclient.operations.get(op)
+                    set_pattern_state(pat_key, message=f"カット{cut_num} {_tag} {'完了' if op.done else '生成中'} ({poll_i+1})")
+                    if op.done:
+                        if op.response and op.response.generated_videos:
+                            video = op.response.generated_videos[0]
+                            vid_data = gclient.files.download(file=video.video)
+                            with open(vid_path, 'wb') as f:
+                                for chunk in vid_data:
+                                    if isinstance(chunk, (bytes, bytearray)):
+                                        f.write(chunk)
+                                    elif isinstance(chunk, int):
+                                        f.write(bytes([chunk]))
+                                    else:
+                                        f.write(bytes(chunk))
+                            vid_size = os.path.getsize(vid_path)
+                            if vid_size > 0:
+                                set_cut_state(pat_key, cut_num, video_model=f"{model_name} / Gemini KEY_{key_idx+1}")
+                                set_pattern_state(pat_key, message=f"カット{cut_num} ✓ {_tag} ({vid_size//1024}KB)")
+                                return
+                            else:
+                                os.remove(vid_path)
+                                raise RuntimeError("動画ファイルが空（0KB）")
+                        else:
+                            raise RuntimeError("動画データなし（ポリシー拒否の可能性）")
+                raise TimeoutError("タイムアウト（15分）")
+
+            # ── カットループ ──
+            set_pattern_state(pat_key, message=f"Step 1/3: 動画生成（{_provider_label(0)} 優先）")
             for i, cut in enumerate(cuts):
                 if should_stop():
                     set_pattern_state(pat_key, status="stopped", message="停止")
@@ -466,46 +573,36 @@ def run_pipeline(pat_key, steps=None):
                 prompt_en = re.sub(r'(?i)(as if shot on an? iphone.*?\.)', '', prompt_en)
                 full_prompt = f"{prompt_en.strip()} {CINEMA_SUFFIX}"
 
-                set_pattern_state(pat_key, progress=f"動画 {i+1}/{len(cuts)}", message=f"カット{num} Veo3生成開始...")
+                set_pattern_state(pat_key, progress=f"動画 {i+1}/{len(cuts)}", message=f"カット{num} {_provider_label()} で生成...")
 
-                try:
-                    op = gclient.models.generate_videos(
-                        model="veo-3.1-generate-preview",
-                        prompt=full_prompt,
-                        config=genai.types.GenerateVideosConfig(aspect_ratio="9:16", number_of_videos=1),
-                    )
-                    for poll_i in range(90):
-                        if should_stop():
-                            set_pattern_state(pat_key, status="stopped", message="停止")
-                            return
-                        time.sleep(10)
-                        op = gclient.operations.get(op)
-                        set_pattern_state(pat_key, message=f"カット{num} Veo3: {'完了' if op.done else '生成中'} ({poll_i+1})")
-                        if op.done:
-                            if op.response and op.response.generated_videos:
-                                video = op.response.generated_videos[0]
-                                vid_data = gclient.files.download(file=video.video)
-                                vid_bytes = b""
-                                for chunk in vid_data:
-                                    vid_bytes += chunk
-                                with open(vid_path, 'wb') as f:
-                                    f.write(vid_bytes)
-                                set_pattern_state(pat_key, message=f"カット{num} ✓ ({len(vid_bytes)//1024}KB)")
-                            else:
-                                set_pattern_state(pat_key, message=f"カット{num} ✗ 動画データなし")
-                            break
-                    else:
-                        set_pattern_state(pat_key, message=f"カット{num} ✗ タイムアウト")
-                except Exception as e:
-                    err_msg = str(e)[:200]
-                    if "quota" in err_msg.lower() or "429" in err_msg or "resource_exhausted" in err_msg.lower():
-                        if _rotate_key(err_msg):
-                            gclient = _get_gemini_client()
-                            # このカットは次回「動画 続き」でリトライされる（既存ファイルスキップ方式）
-                            continue
-                        set_pattern_state(pat_key, status="error", message=f"全{len(_gemini_keys)}キーがクォータ超過。しばらく待ってから再試行してください")
+                # 全プロバイダーを試行、同じカットをリトライ
+                _saved_provider_idx = _provider_idx
+                cut_success = False
+                while _provider_idx < len(_providers):
+                    p = _providers[_provider_idx]
+                    try:
+                        if p[0] == "fal":
+                            _generate_video_fal(full_prompt, vid_path, num, p[1])
+                        else:
+                            _generate_video_gemini(full_prompt, vid_path, num, p[1], p[2])
+                        cut_success = True
+                        break
+                    except InterruptedError:
                         return
-                    set_pattern_state(pat_key, status="error", message=f"カット{num} 動画エラー: {err_msg}")
+                    except Exception as e:
+                        err_msg = str(e)[:200]
+                        if _is_retryable(err_msg):
+                            if not _rotate_provider(err_msg):
+                                set_pattern_state(pat_key, message=f"カット{num} ⚠ 全プロバイダー失敗、スキップ")
+                                _provider_idx = _saved_provider_idx
+                                break
+                            continue
+                        else:
+                            set_pattern_state(pat_key, status="error", message=f"カット{num} エラー: {err_msg}")
+                            return
+
+                if not cut_success:
+                    set_pattern_state(pat_key, message=f"カット{num} スキップ、次へ...")
 
         # ===== Step 2: ナレーション生成（ElevenLabs） =====
         if "narration" in steps:
@@ -527,7 +624,7 @@ def run_pipeline(pat_key, steps=None):
                 if not narration:
                     continue
 
-                set_pattern_state(pat_key, progress=f"音声 {i+1}/{len(cuts)}", message=f"カット{num} 音声生成中...")
+                set_pattern_state(pat_key, progress=f"音声 {i+1}/{len(cuts)}", message=f"カット{num} [ElevenLabs v2] 音声生成中...")
                 try:
                     resp = req.post(
                         f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
@@ -541,10 +638,11 @@ def run_pipeline(pat_key, steps=None):
                     if resp.status_code == 200 and resp.headers.get("content-type", "").startswith("audio"):
                         with open(aud_path, 'wb') as f:
                             f.write(resp.content)
-                        set_pattern_state(pat_key, message=f"カット{num} ✓ ({len(resp.content)//1024}KB)")
+                        set_cut_state(pat_key, num, audio_model="ElevenLabs v2")
+                        set_pattern_state(pat_key, message=f"カット{num} ✓ [ElevenLabs v2] ({len(resp.content)//1024}KB)")
                     else:
                         err_detail = resp.text[:150] if resp.status_code != 200 else "音声データなし"
-                        set_pattern_state(pat_key, status="error", message=f"カット{num} ElevenLabs エラー ({resp.status_code}): {err_detail}")
+                        set_pattern_state(pat_key, status="error", message=f"カット{num} [ElevenLabs] エラー ({resp.status_code}): {err_detail}")
                         if resp.status_code in (401, 403):
                             return
                 except Exception as e:
@@ -867,6 +965,8 @@ def api_status():
                 "prompt_jp_override": cqc.get("prompt_jp_override"),
                 "prompt_en_override": cqc.get("prompt_en_override"),
                 "video_versions": count_cut_versions(pat_key, cnum),
+                "video_model": cqc.get("video_model", ""),
+                "audio_model": cqc.get("audio_model", ""),
             })
         qc_counts = {"pending": 0, "approved": 0, "rejected": 0}
         for cd in cuts_data:
@@ -886,10 +986,13 @@ def api_generate(pat_key: str, data: dict = None):
     if ps.get("status") == "running":
         return {"error": "既に実行中です"}
     steps = data.get("steps") if data else None
-    set_pattern_state(pat_key, status="running", progress="0/?", message="開始中...", stop_requested=False)
+    video_model = (data or {}).get("video_model", "fal-ai/veo3.1")
+    if pat_key in PATTERNS:
+        PATTERNS[pat_key]["video_model"] = video_model
+    set_pattern_state(pat_key, status="running", progress="0/?", message=f"開始中... [{video_model}]", stop_requested=False)
     t = threading.Thread(target=run_pipeline, args=(pat_key, steps), daemon=True)
     t.start()
-    return {"ok": True, "pattern": pat_key, "steps": steps}
+    return {"ok": True, "pattern": pat_key, "steps": steps, "video_model": video_model}
 
 @app.post("/api/stop/{pat_key}")
 def api_stop(pat_key: str):
@@ -931,19 +1034,23 @@ def api_regenerate(pat_key: str, data: dict = None):
 def api_generate_batch(data: dict):
     pat_keys = data.get("patterns", [])
     steps = data.get("steps")
+    video_model = data.get("video_model", "fal-ai/veo3.1")
     def run_batch():
         for pk in pat_keys:
             s = load_state()
             if s.get(pk, {}).get("stop_requested"):
                 break
+            # video_model をパターンに一時設定
+            if pk in PATTERNS:
+                PATTERNS[pk]["video_model"] = video_model
             run_pipeline(pk, steps)
     for pk in pat_keys:
-        set_pattern_state(pk, status="queued", message="バッチ待機中...", stop_requested=False)
+        set_pattern_state(pk, status="queued", message=f"バッチ待機中... [{video_model}]", stop_requested=False)
     if pat_keys:
-        set_pattern_state(pat_keys[0], status="running", message="バッチ開始...")
+        set_pattern_state(pat_keys[0], status="running", message=f"バッチ開始... [{video_model}]")
     t = threading.Thread(target=run_batch, daemon=True)
     t.start()
-    return {"ok": True, "patterns": pat_keys}
+    return {"ok": True, "patterns": pat_keys, "video_model": video_model}
 
 @app.post("/api/regenerate-cut/{pat_key}/{cut_num}")
 def api_regenerate_cut(pat_key: str, cut_num: str):

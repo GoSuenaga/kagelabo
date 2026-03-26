@@ -88,7 +88,7 @@ header h1 .brand{color:var(--accent);margin-right:4px}
 .fill-idle{background:var(--surface2)}.fill-running{background:var(--blue);animation:pulse 1.5s ease-in-out infinite}.fill-done{background:var(--green)}.fill-error{background:var(--red)}.fill-stopped{background:var(--yellow)}.fill-partial{background:var(--yellow)}.fill-queued{background:var(--kl-accent)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
 .pat-header .pat-status{font-size:0.75em;font-weight:600}
-.pat-header .pat-msg{font-size:0.72em;color:var(--text2);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pat-header .pat-msg{font-size:0.72em;color:var(--text2);max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .pat-header .pat-actions{display:flex;gap:4px}
 .pat-header .pat-actions .btn{font-size:0.7em;padding:3px 8px}
 .pat-qc-mini{display:flex;gap:3px;font-size:0.68em}
@@ -118,6 +118,8 @@ header h1 .brand{color:var(--accent);margin-right:4px}
 .badge-qc-approved{background:rgba(63,185,120,0.15);color:var(--green)}
 .badge-qc-rejected{background:rgba(232,93,93,0.15);color:var(--red)}
 .badge-edited{background:rgba(184,149,106,0.15);color:var(--accent)}
+.badge-model-vid{background:rgba(160,120,200,0.15);color:#a078c8;font-size:0.62em}
+.badge-model-aud{background:rgba(90,159,212,0.15);color:var(--blue);font-size:0.62em}
 
 .cut-card .copy-panel{padding:4px 8px 6px;font-size:0.75em}
 .cut-card .copy-nar{color:var(--text);line-height:1.4;max-height:3.2em;overflow:hidden;cursor:pointer}
@@ -224,6 +226,12 @@ header h1 .brand{color:var(--accent);margin-right:4px}
   <button class="btn" onclick="selectNonePats()">解除</button>
   <span id="sel-count" style="color:var(--text2);font-size:0.8em"></span>
   <div class="sep"></div>
+  <select id="video-model-select" class="btn" style="padding:5px 8px;font-size:0.78em;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;cursor:pointer;min-width:260px;" title="動画生成モデル">
+    <option value="fal-ai/veo3.1">fal-ai/veo3.1</option>
+    <option value="fal-ai/veo3.1/fast">fal-ai/veo3.1/fast</option>
+    <option value="fal-ai/veo3">fal-ai/veo3</option>
+    <option value="gemini-veo3.1">gemini/veo-3.1-generate-preview</option>
+  </select>
   <button class="btn btn-accent" onclick="batchGenerate(['video','narration'])">選択 → 素材生成</button>
   <button class="btn btn-green" onclick="batchGenerate(['compose'])">選択 → 合成</button>
   <button class="btn btn-danger" onclick="stopAll()">全停止</button>
@@ -515,6 +523,8 @@ function cutCardHTML(k, c, d) {
   html += '<div class="badge-row">';
   html += '<span class="badge badge-num">#' + num.padStart(2, '0') + '</span>';
   if (hasVid) html += '<span class="badge badge-style">cinema</span>';
+  if (c.video_model) html += '<span class="badge badge-model-vid">' + esc(c.video_model) + '</span>';
+  if (c.audio_model) html += '<span class="badge badge-model-aud">' + esc(c.audio_model) + '</span>';
   html += '<span class="badge badge-qc-' + qc + '">' + (qc === 'approved' ? 'OK' : qc === 'rejected' ? 'NG' : '—') + '</span>';
   if (isEdited) html += '<span class="badge badge-edited">edited</span>';
   html += '</div>';
@@ -716,8 +726,10 @@ function reloadSheets() {
 function batchGenerate(steps) {
   var pats = getCheckedPats();
   if (pats.length === 0) { alert('パターンを選択してください'); return; }
-  if (!confirm(pats.join(', ') + ' で [' + steps.join(' → ') + '] を実行？')) return;
-  post('/api/generate-batch', { patterns: pats, steps: steps }, function() { fetchStatus(); });
+  var videoModel = document.getElementById('video-model-select').value;
+  var modelLabel = document.getElementById('video-model-select').selectedOptions[0].text;
+  if (!confirm(pats.join(', ') + '\nモデル: ' + modelLabel + '\nステップ: [' + steps.join(' → ') + ']\n\n実行しますか？')) return;
+  post('/api/generate-batch', { patterns: pats, steps: steps, video_model: videoModel }, function() { fetchStatus(); });
 }
 
 // Selection

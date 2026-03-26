@@ -2,3 +2,6 @@ __pycache__/
 *.pyc
 .env
 venv/
+# Agent 向け Notion スナップショット（PII を含む）
+brain_snapshot*.json
+agent_brain*.json

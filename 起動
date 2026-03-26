@@ -2,3 +2,6 @@ cd ~/Dropbox/CA_Works/20260316_Claude_code/
 source ~/.zshrc && claude
 
 
+ python3 control_panel_server.py  
+
+

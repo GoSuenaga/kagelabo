@@ -30,6 +30,15 @@
   .launch-bar.copied .copy-hint { color: var(--kl-green); }
   .card.offline .launch-bar { display: block; }
 
+  .start-btn {
+    display: none; margin-top: 8px; padding: 8px 16px; border: none; border-radius: 6px;
+    background: var(--kl-green); color: #000; font-size: 0.85em; font-weight: 600;
+    cursor: pointer; font-family: -apple-system, sans-serif; transition: opacity 0.15s;
+  }
+  .start-btn:hover { opacity: 0.8; }
+  .start-btn:disabled { opacity: 0.4; cursor: default; }
+  .card.offline .start-btn { display: inline-block; }
+
   .card-url { font-size: 0.7em; color: var(--kl-text-muted); position: absolute; bottom: 6px; right: 12px; }
   .dot {
     width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
@@ -56,11 +65,12 @@
 
   <div class="kl-group-title kl-group-rag">RAG / Static Image QC</div>
   <div class="kl-app-lane kl-group-rag">
-    <div class="kl-card card launch-host" id="card-rag" data-url="http://localhost:8000" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/rag-images && python3 -m uvicorn app:app --host 0.0.0.0 --port 8000">
+    <div class="kl-card card launch-host" id="card-rag" data-url="http://localhost:8000" data-service="rag" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/rag-images && python3 app.py">
       <div class="kl-card-icon">🎨</div>
       <div class="kl-card-body">
         <div class="kl-card-name">RAG Creative Studio <span class="kl-card-ver">v2</span></div>
         <div class="kl-card-desc">広告バナーQC — 画像バージョン管理・コピー編集・修正ログ</div>
+        <button class="start-btn" onclick="event.stopPropagation(); launchService('rag', this)">Start</button>
         <div class="launch-bar" onclick="event.stopPropagation(); copyCmd(this)"><span class="cmd-text"></span><span class="copy-hint">click to copy</span></div>
       </div>
       <div class="dot dot-checking" id="dot-rag"></div>
@@ -85,11 +95,12 @@
 
   <div class="kl-group-title kl-group-vantan">VANTAN / Video Production</div>
   <div class="kl-app-lane kl-group-vantan">
-    <div class="kl-card card launch-host" id="card-vlog" data-url="http://localhost:8501" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/vantan-video && streamlit run vlog_app.py">
+    <div class="kl-card card launch-host" id="card-vlog" data-url="http://localhost:8501" data-service="vlog" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code/apps/vantan-video && streamlit run vlog_app.py">
       <div class="kl-card-icon">🎬</div>
       <div class="kl-card-body">
         <div class="kl-card-name">Vlog 動画生成 UI <span class="kl-card-ver">v1</span></div>
         <div class="kl-card-desc">Streamlit — Vlog風広告の生成・プレビュー</div>
+        <button class="start-btn" onclick="event.stopPropagation(); launchService('vlog', this)">Start</button>
         <div class="launch-bar" onclick="event.stopPropagation(); copyCmd(this)"><span class="cmd-text"></span><span class="copy-hint">click to copy</span></div>
       </div>
       <div class="dot dot-checking" id="dot-vlog"></div>
@@ -187,6 +198,34 @@
 
   <div class="kl-group-title kl-group-tools">KageTools / 管理</div>
   <div class="kl-app-lane kl-group-tools">
+    <div class="kl-card card launch-host" id="card-ccm" data-url="http://100.97.215.51:7700" data-cmd="cd ~/Dropbox/CA_Works/20260316_Claude_code && MOBILE_CLAUDE_PW=test123 python3 scripts/mobile_server.py">
+      <div class="kl-card-icon">📱</div>
+      <div class="kl-card-body">
+        <div class="kl-card-name">Claude Code Mobile <span class="kl-card-ver">v1.1</span></div>
+        <div class="kl-card-desc">Tailscale VPN — iPhone からリモート操作（Dashboard / Chat）</div>
+        <div class="launch-bar" onclick="event.stopPropagation(); copyCmd(this)"><span class="cmd-text"></span><span class="copy-hint">click to copy</span></div>
+      </div>
+      <div class="dot dot-checking" id="dot-ccm"></div>
+      <span class="card-url">:7700</span>
+    </div>
+    <aside class="kl-app-overview">
+      <h4>仕様メモ</h4>
+      <dl>
+        <dt>概要</dt>
+        <dd>iPhone Safari から Mac の Claude Code CLI をリモート操作。Dashboard で進捗確認、Chat でストリーミング指示。</dd>
+        <dt>リポジトリ</dt>
+        <dd><code>scripts/mobile_server.py</code></dd>
+        <dt>API / LLM</dt>
+        <dd>FastAPI + uvicorn、Claude Code CLI（サブプロセス）</dd>
+        <dt>言語</dt>
+        <dd>Python 3</dd>
+        <dt>データ</dt>
+        <dd>Tailscale VPN（<code>100.97.215.51:7700</code>）、STATUS.md パース</dd>
+      </dl>
+    </aside>
+  </div>
+
+  <div class="kl-app-lane kl-group-tools">
     <a class="kl-card card" data-url="https://docs.google.com/spreadsheets/d/1-6UG15CPLt-VmbjNEFOE6tjm53vFtu6IH92vgq77bQo/" data-cloud="true">
       <div class="kl-card-icon">📊</div>
       <div class="kl-card-body">
@@ -233,9 +272,11 @@ function copyCmd(bar) {
   });
 }
 
+const CCM_BASE = 'http://localhost:7700';
 const LOCAL_CHECKS = [
   { id: 'rag',  dotId: 'dot-rag',  cardId: 'card-rag',  url: 'http://localhost:8000/api/cartridges' },
   { id: 'vlog', dotId: 'dot-vlog', cardId: 'card-vlog', url: 'http://localhost:8501' },
+  { id: 'ccm',  dotId: 'dot-ccm',  cardId: 'card-ccm',  url: CCM_BASE + '/api/services' },
 ];
 
 async function checkHealth(svc) {
@@ -284,6 +325,32 @@ document.querySelectorAll('.card').forEach(card => {
     }
   });
 });
+
+// ── Launch service via CCM ──
+async function launchService(serviceId, btn) {
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const res = await fetch(CCM_BASE + '/api/launch', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({service: serviceId}),
+    });
+    const d = await res.json();
+    if (d.ok) {
+      btn.textContent = d.status === 'already_running' ? 'Already running' : 'Started!';
+      setTimeout(() => checkAll(), 3000);
+    } else {
+      btn.textContent = 'Error: ' + (d.error || 'unknown');
+    }
+  } catch(e) {
+    btn.textContent = 'CCM not running';
+  }
+  setTimeout(() => {
+    btn.disabled = false;
+    btn.textContent = 'Start';
+  }, 4000);
+}
 
 checkAll();
 setInterval(checkAll, 10000);

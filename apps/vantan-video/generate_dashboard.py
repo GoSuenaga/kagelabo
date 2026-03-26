@@ -46,40 +46,69 @@ def find_final(pattern_key):
     p = f"output/workflow_002/{pattern_key}/final.mp4"
     return p if os.path.exists(p) else None
 
+# --- theme CSS path (repo assets/kage-lab-theme.css) ---
+_REPO_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..'))
+_THEME_CSS = os.path.join(_REPO_ROOT, 'assets', 'kage-lab-theme.css')
+out_path = os.environ.get('DASHBOARD_OUT', 'dashboard.html')
+_out_abs = os.path.abspath(out_path)
+_out_dir = os.path.dirname(_out_abs) or os.getcwd()
+_theme_href = os.path.relpath(_THEME_CSS, _out_dir).replace('\\', '/')
+
 # --- HTML生成 ---
 html_parts = []
-html_parts.append("""<!DOCTYPE html>
+html_parts.append(f"""<!DOCTYPE html>
 <html lang="ja">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>workflow_002 ダッシュボード</title>
+<link rel="stylesheet" href="{_theme_href}">
 <style>
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: -apple-system, 'Helvetica Neue', sans-serif; background: #0a0a0a; color: #e0e0e0; padding: 16px; }
-  h1 { font-size: 1.4em; margin-bottom: 16px; color: #fff; }
-  h2 { font-size: 1.1em; margin: 24px 0 12px; color: #90caf9; border-bottom: 1px solid #333; padding-bottom: 4px; }
-  .pattern { margin-bottom: 32px; }
-  .final-video { margin: 12px 0; }
-  .final-video video { width: 100%; max-width: 360px; border-radius: 8px; }
-  table { width: 100%; border-collapse: collapse; font-size: 0.85em; margin-top: 8px; }
-  th { background: #1a1a2e; padding: 8px 6px; text-align: left; position: sticky; top: 0; }
-  td { padding: 6px; border-bottom: 1px solid #222; vertical-align: top; }
-  tr:hover td { background: #1a1a2e; }
-  .cut-num { font-weight: bold; color: #ffab40; white-space: nowrap; }
-  .narration { max-width: 240px; }
-  .telop { color: #ce93d8; }
-  .logo { color: #66bb6a; }
-  .video-cell video { width: 120px; border-radius: 4px; }
-  .no-video { color: #666; font-size: 0.8em; }
-  .status-ok { color: #66bb6a; }
-  .status-ng { color: #ef5350; }
-  .summary { display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0; font-size: 0.9em; }
-  .summary span { background: #1a1a2e; padding: 4px 10px; border-radius: 4px; }
+  * {{ box-sizing: border-box; margin: 0; padding: 0; }}
+  body.kl-theme-vantan {{
+    font-family: -apple-system, 'Helvetica Neue', sans-serif;
+    background: var(--kl-bg); color: var(--kl-text); padding: 16px;
+  }}
+  h1 {{ font-size: 1.4em; margin-bottom: 16px; color: var(--kl-text); }}
+  h2 {{ font-size: 1.1em; margin: 24px 0 12px; color: var(--kl-accent); border-bottom: 1px solid var(--kl-border); padding-bottom: 4px; }}
+  .pattern {{ margin-bottom: 32px; }}
+  .final-video {{ margin: 12px 0; }}
+  .final-video video {{ width: 100%; max-width: 360px; border-radius: 8px; }}
+  table {{ width: 100%; border-collapse: collapse; font-size: 0.85em; margin-top: 8px; }}
+  th {{ background: var(--kl-surface-2); padding: 8px 6px; text-align: left; position: sticky; top: 0; }}
+  td {{ padding: 6px; border-bottom: 1px solid var(--kl-border); vertical-align: top; }}
+  tr:hover td {{ background: var(--kl-surface); }}
+  .cut-num {{ font-weight: bold; color: var(--kl-accent); white-space: nowrap; }}
+  .narration {{ max-width: 240px; }}
+  .telop {{ color: #c4a5d8; }}
+  .logo {{ color: var(--kl-green); }}
+  .video-cell video {{ width: 120px; border-radius: 4px; }}
+  .no-video {{ color: var(--kl-text-muted); font-size: 0.8em; }}
+  .status-ok {{ color: var(--kl-green); }}
+  .status-ng {{ color: var(--kl-red); }}
+  .summary {{ display: flex; gap: 16px; flex-wrap: wrap; margin: 8px 0; font-size: 0.9em; }}
+  .summary span {{ background: var(--kl-surface); padding: 4px 10px; border-radius: 4px; border: 1px solid var(--kl-border); }}
+  .app-links {{ display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 20px; padding: 12px 16px; background: var(--kl-surface); border-radius: 8px; border: 1px solid var(--kl-border); align-items: center; }}
+  .app-links a {{ color: var(--kl-accent); text-decoration: none; font-size: 0.9em; font-weight: 600; padding: 6px 14px; border: 1px solid var(--kl-accent-border); border-radius: 6px; transition: all 0.15s; }}
+  .app-links a:hover {{ background: var(--kl-accent-muted); color: var(--kl-text); }}
+  .app-links .note {{ color: var(--kl-text-muted); font-size: 0.75em; margin-left: auto; }}
 </style>
 </head>
-<body>
+<body class="kl-surface-body kl-theme-vantan">
 <h1>workflow_002 ダッシュボード</h1>
+""")
+html_parts.append("""<div class="app-links">
+  <a href="http://localhost:8000" target="_blank" onclick="return checkApp()">RAG Creative Studio</a>
+  <span class="note">* 未起動時は apps/rag-images で uvicorn を起動</span>
+</div>
+<script>
+function checkApp() {
+  fetch('http://localhost:8000/api/briefs', {mode:'no-cors'}).catch(function() {
+    alert('RAG Creative Studio に接続できません。');
+  });
+  return true;
+}
+</script>
 """)
 
 for pat_key in sorted(patterns.keys()):
@@ -142,7 +171,6 @@ document.querySelectorAll('.video-cell video').forEach(v => {
 </body></html>
 """)
 
-out_path = "dashboard.html"
 with open(out_path, "w", encoding="utf-8") as f:
     f.write("\n".join(html_parts))
 

@@ -6,7 +6,7 @@
 import requests, os
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 fal_key = os.getenv("FAL_API_KEY")
 serious_base = "clients/vantan/se/真面目バージョン"
 

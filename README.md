@@ -60,6 +60,7 @@ git push -u origin main
 | `apps/rag-images/` | **静止画・QC** — 旧 `qc-gallery-app`（FastAPI + ギャラリー UI）。 |
 | `packages/shared/` | 共通 Python（将来の切り出し用）。 |
 | `packages/20260323_vantan_v1/` | VANTAN 動画スナップショット・設計ドキュメント。 |
+| `docs/app_catalog.json` | **アプリカタログの単一ソース**（`sync_app_catalog.py`・`CLAUDE.md` から参照）。 |
 
 ## クイックスタート
 

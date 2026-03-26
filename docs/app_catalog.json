@@ -1,0 +1,79 @@
+{
+  "schema_version": 1,
+  "description": "kage-lab アプリカタログの唯一の定義元。Google Sheets 同期（sync_app_catalog.py）もここだけを読む。変更時は本ファイルのみ編集すること。",
+  "maintenance": {
+    "kage_version_hint": "KAGE の ver は apps/kage/static/kage_release.json の app_version と揃える運用を推奨（例: 0.300 → 表記は v0.300）"
+  },
+  "entries": [
+    {
+      "name": "KAGE（影秘書）",
+      "ver": "v0.302",
+      "type": "Web API",
+      "start": "uvicorn app:app",
+      "url": "https://notion-secretary-api-production.up.railway.app/app",
+      "path": "apps/kage/",
+      "status": "デプロイ済み",
+      "memo": "Notion連携チャット秘書。Railway にデプロイ済み"
+    },
+    {
+      "name": "Vlog 動画生成 UI",
+      "ver": "v1",
+      "type": "Streamlit",
+      "start": "cd apps/vantan-video && streamlit run vlog_app.py",
+      "url": "http://localhost:8501",
+      "path": "apps/vantan-video/vlog_app.py",
+      "status": "ローカル起動可",
+      "memo": "Vlog風広告の生成UI（DRY_RUN対応）"
+    },
+    {
+      "name": "絵コンテダッシュボード",
+      "ver": "v1",
+      "type": "静的HTML",
+      "start": "python3 generate_dashboard.py && open dashboard.html",
+      "url": "file:///Users/a13371/Dropbox/CA_Works/20260316_Claude_code/dashboard.html",
+      "path": "apps/vantan-video/generate_dashboard.py",
+      "status": "ローカル起動可",
+      "memo": "workflow_002 全16パターンの台本プレビュー"
+    },
+    {
+      "name": "RecruitAgent-ImageAdMaker（QCギャラリー）",
+      "ver": "v1.0",
+      "type": "FastAPI",
+      "start": "cd apps/rag-images && python3 app.py",
+      "url": "http://localhost:8000",
+      "path": "apps/rag-images/",
+      "status": "ローカル起動可",
+      "memo": "リクルートエージェント広告バナーQC。fal.ai Flux Pro + Gemini英訳。画像バージョニング・プロンプト編集・デザイナー納品エクスポート"
+    },
+    {
+      "name": "生成管理アプリ",
+      "ver": "—",
+      "type": "Streamlit",
+      "start": "（作成中）",
+      "url": "—",
+      "path": "apps/vantan-video/",
+      "status": "作成中",
+      "memo": "全パターン一括生成・進捗管理・停止/再生成"
+    },
+    {
+      "name": "絵コンテスプシ（workflow_002）",
+      "ver": "v1",
+      "type": "Google Sheets",
+      "start": "—",
+      "url": "https://docs.google.com/spreadsheets/d/1gVGbo_fKC7sQ_B06P4M15VWn9XTMKOyKuv_Fi0VfJlc/",
+      "path": "—",
+      "status": "運用中",
+      "memo": "スクール別親子広告16パターンの台本データ"
+    },
+    {
+      "name": "Vlogマスタースプシ（workflow_001）",
+      "ver": "v1",
+      "type": "Google Sheets",
+      "start": "—",
+      "url": "https://docs.google.com/spreadsheets/d/1yyvxMYsaChW1nnnua1owfRuk673keHkoK3zvVVnIDKQ/",
+      "path": "—",
+      "status": "完了",
+      "memo": "Vlog風広告20本用マスター"
+    }
+  ]
+}

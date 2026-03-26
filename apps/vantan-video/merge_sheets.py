@@ -7,7 +7,7 @@ import gspread, time, os, random, json
 from gspread_formatting import *
 from dotenv import load_dotenv
 
-load_dotenv(".env")
+load_dotenv()
 
 gc = gspread.oauth(credentials_filename='oauth_credentials.json', authorized_user_filename='token.json')
 sh = gc.open_by_key('1gVGbo_fKC7sQ_B06P4M15VWn9XTMKOyKuv_Fi0VfJlc')

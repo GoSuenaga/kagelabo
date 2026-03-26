@@ -153,20 +153,15 @@
 
 ## アプリカタログ（成果物アーカイブ）
 
-新しいアプリやダッシュボードを作ったら、ここに追記すること。
+**唯一の定義元:** `docs/app_catalog.json`（新規アプリ・版上げ・廃止メモは **この JSON だけ**編集する。本ファイルに表を二重掲載しない）
 
-| # | アプリ名 | ver | 種別 | 起動方法 | URL / パス | メモ |
-|---|---------|-----|------|---------|-----------|------|
-| 1 | **KAGE（影秘書）** | v0.164 | Web API | `uvicorn app:app` | [Railway](https://notion-secretary-api-production.up.railway.app/app) | Notion 連携チャット秘書。デプロイ済み |
-| 2 | **Vlog 動画生成 UI** | v1 | Streamlit | `cd apps/vantan-video && streamlit run vlog_app.py` | localhost:8501 | Vlog 風広告の生成 UI（DRY_RUN 対応） |
-| 3 | **絵コンテダッシュボード** | v1 | 静的 HTML | `python3 generate_dashboard.py && open dashboard.html` | `dashboard.html`（ローカル） | workflow_002 全16パターンの台本プレビュー |
-| 4 | **RecruitAgent-ImageAdMaker** | v1.0 | FastAPI | `cd apps/rag-images && python3 app.py` | localhost:8000 | リクルートエージェント広告バナーQC。fal.ai Flux Pro + Gemini英訳。画像バージョニング・プロンプト編集・デザイナー納品エクスポート |
-| 5 | **生成管理アプリ** | — | Streamlit | （作成中） | — | 全パターン一括生成・進捗管理・停止/再生成 |
+- Google スプレッドシートへ反映: リポジトリルートで `python3 sync_app_catalog.py`（同 JSON を読み込む）
+- 人間・AI が一覧を見るときも **`docs/app_catalog.json`** を開く（または `docs/README.md`）
 
 ### 更新ルール
-- 新しいアプリを作ったら行を追加
-- バージョンアップしたら ver を更新し、メモに変更内容を追記
-- 廃止したアプリは行を残して ~~取り消し線~~ にする
+- `entries` にオブジェクトを追加、または既存の `ver` / `memo` / `status` を更新
+- 廃止したアプリは `entries` から消さず、`status` を「廃止」等にし、必要なら `memo` に理由を書く（履歴用）
+- KAGE の表示バージョンは `apps/kage/static/kage_release.json` の `app_version` と揃える運用を推奨（`app_catalog.json` の該当 `ver` を合わせる）
 
 ## 再開手順
 
